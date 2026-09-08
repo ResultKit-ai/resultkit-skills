@@ -141,7 +141,7 @@ A user with no custom columns gets `200` with `{ "data": [] }` — **not** a 404
 
 Historical completions from the signed-in person's **own** day plans, most recent first. Added 2026-08-02 (w3mg/resultmaps-api2#478, PR #479) specifically to serve this skill's "what's done in my columns" scenarios; the current day-plan reads only ever surface today's plan and cannot answer them.
 
-Binding spec: `docs/design-intent/day-plan-completions/day-plan-completions-spec.md` in `w3mg/resultmaps-api2`.
+Binding spec: `docs/design-intent/day-plan-completions/day-plan-completions-spec.md` in `ResultKit-ai/resultmaps-api2`.
 
 | Method | Path | Description | User Phrases | Web URL |
 |--------|------|-------------|--------------|---------|
