@@ -249,7 +249,7 @@ echo "$RESPONSE"
 ### Edge Cases
 
 - **No config**: Any flow → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Item already on plan** (PUT/attach): Idempotent — API returns 200, confirm it's on the plan.
 - **Empty plan on view**: Show helpful message with add hint.
 - **Date plan doesn't exist**: 404 → "No plan exists for {date}."

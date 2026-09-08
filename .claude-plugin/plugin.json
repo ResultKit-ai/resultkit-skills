@@ -1,11 +1,11 @@
 {
   "name": "rkit",
-  "version": "1.3.62",
+  "version": "1.3.63",
   "description": "ResultMaps V2 API skills for day plans, team boards, and action items",
   "author": {
     "name": "ResultMaps"
   },
-  "repository": "https://github.com/w3mg/resultkit-skills",
+  "repository": "https://github.com/ResultKit-ai/resultkit-skills",
   "license": "MIT",
   "skills": "./skills/"
 }

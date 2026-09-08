@@ -359,7 +359,7 @@ If `meta.total_pages > 1`, fetch remaining pages and combine results.
 ## Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Search term < 2 chars**: "Search requires at least 2 characters."
 - **No teams match search**: "No teams matching '{term}'."
 - **Team not found (404) on members**: "Team {id} not found (404)."

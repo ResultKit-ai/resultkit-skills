@@ -137,7 +137,7 @@ api.sh wraps every response as `{"status": N, "body": {...}}` — always read fi
 
 ## Edge Cases
 
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No Success section**: offer to draft one from the checklist — criteria are usually the last step of each checklist phase, restated as a state.
 - **One criterion**: not a failure on its own, but ask what the next seat receives; rule 5 almost always surfaces a second.
 - **Policy dressed as a criterion** ("we always double-check"): ask what artifact proves it, then rewrite around that artifact.

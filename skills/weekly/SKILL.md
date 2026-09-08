@@ -347,7 +347,7 @@ echo "$RESPONSE"
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **All columns empty** → show all four column headers with "(empty)"
 - **Item not on {board_name} (move)** → "Item {id} is not on the {board_name}. Use `add` to put it on first."
 - **Item already in target column (move)** → warn and skip

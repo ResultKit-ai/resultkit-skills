@@ -44,7 +44,7 @@ View a team's vision and mission data (cross-framework).
 ### Step 1: Resolve team ID and api.sh
 
 From Current State:
-- Extract `API_SH` path. If NOT_FOUND: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`" — stop.
+- Extract `API_SH` path. If NOT_FOUND: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`" — stop.
 - If config is MISSING: "Config not found. Run `/rkit:setup` first." — stop.
 - Resolve `TEAM_ID` using Team ID Resolution above.
 
@@ -188,7 +188,7 @@ For OKR/4DX teams, render vision, mission, and core values.
 ## Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No default_team_id and no --team**: "No default team configured. Run `/rkit:setup` first."
 - **Unsupported framework**: Display the unsupported message and stop.
 - **EOS team, eos_vision is null**: Render vision/mission from the top-level `vision`/`mission` fields instead. Core values from `core_values`.

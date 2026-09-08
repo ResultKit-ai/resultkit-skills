@@ -56,7 +56,7 @@ Triggered by: *(no args)*, `stats`, or `stats {user_id}`
 ### Step 1: Resolve user ID and api.sh path
 
 From Current State:
-- Extract `API_SH` path. If NOT_FOUND: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`" — stop.
+- Extract `API_SH` path. If NOT_FOUND: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`" — stop.
 - If config is MISSING: "Config not found. Run `/rkit:setup` first." — stop.
 - If `stats {user_id}` in args: `USER_ID={user_id}`. Otherwise: `USER_ID=me`.
 
@@ -737,7 +737,7 @@ echo "$RESPONSE"
 ## Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Stats — 403 (no shared team)**: "Access denied (403). You must share a team with user {id} to view their stats."
 - **Stats — 404**: "User {id} not found (404)."
 - **Prefs update — unknown field**: "Unknown preference field '{field}'. Run `/rkit:profile prefs` to see available fields."

@@ -104,7 +104,7 @@ Use Team ID Resolution. Error if not configured.
 
 Verify config and api.sh are present:
 - If config missing: "Config not found. Run `/rkit:setup` first."
-- If api.sh shows `NOT_FOUND`: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- If api.sh shows `NOT_FOUND`: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 
 ### Step 2: Resolve year and flags
 
@@ -701,7 +701,7 @@ STATUS=$(echo "$RESPONSE" | jq -r '.status // "error"')
 | `status: 403` | "Not authorized for this operation. Check your team membership." |
 | `status: 404` | "Not found. Check the ID or name and try again." |
 | `status: 422` | Show the validation error message from the response body. |
-| `api.sh = NOT_FOUND` | "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`" |
+| `api.sh = NOT_FOUND` | "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`" |
 | Other non-200 | Show status code and error message from response body. |
 
 ### Edge Cases

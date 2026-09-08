@@ -536,7 +536,7 @@ Note: Milestone responses do NOT include `updated_at`.
 ### Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No default_team_id and no --team**: Prompt user for team ID.
 - **Empty strategy + empty unaligned**: Show empty state message.
 - **Inherited node targeted for edit**: Block with clear message identifying the source team.

@@ -568,7 +568,7 @@ Replace `FILE_PATH` with the actual local path and `DATE` with the resolved date
 ### Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No default_team_id and no --team**: Prompt user for team ID.
 - **Empty feed list**: "No shared check-ins found for this team."
 - **No webhook configured**: "No Slack/Discord webhook configured for this team. Ask an admin to set one up."

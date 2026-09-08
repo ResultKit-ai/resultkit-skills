@@ -228,7 +228,7 @@ Projects use the same status field as items:
 ## Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No projects**: "No active projects for team {team_id}."
 - **Team not found (404)**: "Team {team_id} not found."
 - **No columns**: "No columns found for project {project_id}." (project has no direct children)

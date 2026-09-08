@@ -477,7 +477,7 @@ These hold in every reply. A reply that breaks one is wrong even if it looks rig
 
 `200` with an empty `data` array is not an error. On `/day-plan-columns` it means `no_columns`.
 
-**api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+**api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 
 ---
 

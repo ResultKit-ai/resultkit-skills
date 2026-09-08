@@ -31,7 +31,7 @@ Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI.
 **Install via plugin marketplace (recommended):**
 
 ```
-/plugin marketplace add w3mg/resultkit-skills
+/plugin marketplace add ResultKit-ai/resultkit-skills
 /plugin install rkit@resultkit
 ```
 
@@ -50,7 +50,7 @@ Requires [Codex CLI](https://github.com/openai/codex).
 **Install skills:**
 
 ```bash
-git clone https://github.com/w3mg/resultkit-skills.git
+git clone https://github.com/ResultKit-ai/resultkit-skills.git
 mkdir -p ~/.agents/skills
 cp -r resultkit-skills/skills/* ~/.agents/skills/
 ```
@@ -71,13 +71,13 @@ Requires [Gemini CLI](https://github.com/google-gemini/gemini-cli).
 **Install as extension:**
 
 ```bash
-gemini extensions install https://github.com/w3mg/resultkit-skills
+gemini extensions install https://github.com/ResultKit-ai/resultkit-skills
 ```
 
 **Or install skills manually:**
 
 ```bash
-git clone https://github.com/w3mg/resultkit-skills.git
+git clone https://github.com/ResultKit-ai/resultkit-skills.git
 mkdir -p ~/.gemini/skills
 cp -r resultkit-skills/skills/* ~/.gemini/skills/
 ```

@@ -12,7 +12,7 @@
       "name": "rkit",
       "source": {
         "source": "url",
-        "url": "https://github.com/w3mg/resultkit-skills.git"
+        "url": "https://github.com/ResultKit-ai/resultkit-skills.git"
       },
       "description": "Day plans, team boards, and action items via ResultMaps API"
     }

@@ -349,7 +349,7 @@ Always use `done`, `next`, `blocked` in API paths.
 ### Edge Cases
 
 - **No config**: Any flow → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Item already in section** (PUT/attach): Idempotent — API returns 200.
 - **Empty check-in on view**: Show helpful message with add hint.
 - **No default_team_id for submit**: Prompt user for team ID.

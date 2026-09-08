@@ -600,7 +600,7 @@ Same as above but `children` contains simplified objects: `[{ "id": 1138, "name"
 ### Edge Cases
 
 - **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No default_team_id and no --team**: Prompt user for team ID.
 - **Empty seats array**: "No seats found for this team. Create one with `/rkit:seats create \"Role Name\"`."
 - **Seat owner is null**: Display "Vacant" in tree and detail views.

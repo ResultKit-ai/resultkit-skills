@@ -79,7 +79,7 @@ echo "$RESPONSE"
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No user ID** → "Usage: `/rkit:password-reset {user_id}`"
 - **Non-admin (403)** → "Admin access required."
 - **Invalid user / no email (422)** → Show validation error from response body.

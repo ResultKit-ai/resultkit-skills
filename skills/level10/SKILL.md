@@ -498,7 +498,7 @@ Only include `text` if text was provided. Only include `expires_at` if `--expire
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Non-EOS team** → "Level 10 is only available for teams using the EOS framework. Use `/rkit:weekly` instead."
 - **Item not found (404)** → "Item {id} not found."
 - **Headline not found (404)** → "Headline {id} not found."

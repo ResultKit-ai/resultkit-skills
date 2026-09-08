@@ -395,7 +395,7 @@ echo "$RESPONSE"
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No one-on-ones** → "No one-on-ones found."
 - **Meeting not found (404)** → "Meeting {id} not found."
 - **All columns empty** → show all three column headers with "(empty)"

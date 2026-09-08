@@ -173,7 +173,7 @@ api.sh wraps every response as `{"status": N, "body": {...}}` — always read fi
 
 ## Edge Cases
 
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Empty team**: "No pages for team {team_id} yet. `/rkit:pages create \"title\"` to start."
 - **Untitled pages**: display as *(untitled)* with the ID so they're still addressable.
 - **No converter installed**: irrelevant — markdown goes to the API as-is. Never refuse a write for a missing pandoc or npx.

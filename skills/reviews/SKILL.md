@@ -866,7 +866,7 @@ echo "$RESPONSE"
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No reviews** → "No reviews found."
 - **Review not found (404)** → "Review {id} not found."
 - **No template on review** → In assess/draft flow, skip template prompt walk-through; collect a single free-form response instead.

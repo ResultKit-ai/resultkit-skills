@@ -419,7 +419,7 @@ If `failed > 0`, display an error table:
 - **Column has no children** → show column header with "(empty)"
 - **Item not found (404)** → "Item {id} not found (404)."
 - **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add w3mg/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **Column has >50 items** → show first 50 with "({total} total, showing first 50)"
 - **Board has >10 columns** → show first 10 with "({N} more columns not shown)"
 - **Column name/ID not found** → "No column matching '{input}' on board {id}." with list of available columns
