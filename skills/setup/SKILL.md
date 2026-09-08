@@ -1,6 +1,6 @@
 ---
 name: rkit:setup
-description: First-run configuration for ResultKit. Creates and manages ~/.config/resultkit/config.json with API token, default team, and API base URL. Use this skill when users need to set up ResultKit for the first time, reconfigure their token, change default team, or update API settings. Triggers on "setup", "configure", "connect my account", "change team", "update token", or any first-time rkit usage issues.
+description: First-run configuration for ResultKit. Creates and manages ~/.config/resultkit/config.json with API token, default team, and API base URL, plus named profiles under ~/.config/resultkit/profiles/ for people who hold logins to more than one ResultMaps org. Use this skill when users need to set up ResultKit for the first time, reconfigure their token, change default team, update API settings, or add/list/remove a second account. Triggers on "setup", "configure", "connect my account", "change team", "update token", "add another account", "second account", "profile", "switch account", or any first-time rkit usage issues.
 user-invocable: true
 allowed-tools: Bash(curl *), Bash(jq *), Bash(mkdir -p *), Read, Glob, Grep, Write, AskUserQuestion
 ---
@@ -11,6 +11,8 @@ allowed-tools: Bash(curl *), Bash(jq *), Bash(mkdir -p *), Read, Glob, Grep, Wri
 
 - Config status: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING"; fi`
 - Env var: !`[ -n "${RESULTKIT_TOKEN:-}" ] && echo "RESULTKIT_TOKEN is set" || echo "RESULTKIT_TOKEN not set"`
+- Active account: !`if [ -n "${RESULTKIT_CONFIG:-}" ]; then echo "RESULTKIT_CONFIG=$RESULTKIT_CONFIG"; elif [ -n "${RESULTKIT_PROFILE:-}" ]; then echo "RESULTKIT_PROFILE=$RESULTKIT_PROFILE"; else echo "default (config.json)"; fi`
+- Profiles: !`d="$HOME/.config/resultkit/profiles"; if [ -d "$d" ] && ls -A "$d" 2>/dev/null | grep -q .; then for f in "$d"/*.json; do [ -f "$f" ] || continue; n=$(basename "$f" .json); t=$(jq -r '.default_team_id // "—"' "$f" 2>/dev/null); echo "$n (default_team_id $t)"; done; else echo "none"; fi`
 - api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/setup/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/setup/scripts/api.sh "$HOME/.claude/skills/rkit:setup/scripts/api.sh" "$HOME/.agents/skills/setup/scripts/api.sh" "$HOME/.gemini/skills/setup/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
@@ -19,6 +21,64 @@ allowed-tools: Bash(curl *), Bash(jq *), Bash(mkdir -p *), Read, Glob, Grep, Wri
 - **Show IDs**: Always include entity IDs (team ID, user ID) in output.
 - **Concise output**: Tables and short summaries. No verbose prose.
 - **Direct execution**: Use Bash for all API calls. Never use Task agents or subagents.
+- **Never reconfigure to switch accounts.** If someone holds two logins, add a profile — see below. Rewriting `config.json` to move between orgs is the failure this replaced.
+
+## Multiple accounts (profiles)
+
+One person can hold logins to more than one ResultMaps org — a consultant with their own
+account and a client's, say. Those orgs are different teams, and each token is refused by the
+other (`404 Team not found` / `403 Access denied`), so the account has to follow the work.
+
+**Do not switch by rewriting `config.json`.** Two Claude sessions run at once in two repos, and
+whichever wrote last decides where *both* post. The account is chosen by environment instead,
+which is per-process and therefore per-session:
+
+| Variable | Resolves to | Use |
+|---|---|---|
+| `RESULTKIT_CONFIG` | exactly that file | one-off; wins over `RESULTKIT_PROFILE` |
+| `RESULTKIT_PROFILE=<name>` | `~/.config/resultkit/profiles/<name>.json` | the normal case |
+| neither | `~/.config/resultkit/config.json` | unchanged default |
+
+A named profile that does not exist is an **error**, never a fall-back to the default account —
+`api.sh` returns `NO_CONFIG` with the `config_file` it looked for. That is deliberate: falling
+back would post one org's work to another org's board and report success.
+
+**Wire it per project**, so the repo picks the account and nothing global has to be remembered:
+
+```jsonc
+// <repo>/.claude/settings.json
+{ "env": { "RESULTKIT_PROFILE": "acme" } }
+```
+
+This takes effect immediately in the session — no restart.
+
+### Add a profile
+
+Run the same token → verify → pick-team flow as first-run setup, then write the profile
+instead of the default config. Profile names are one filename component
+(`[A-Za-z0-9._-]`); anything else is refused by `api.sh`.
+
+```bash
+mkdir -p "$HOME/.config/resultkit/profiles"
+umask 077
+cat > "$HOME/.config/resultkit/profiles/PROFILE_NAME.json" << 'JSONEOF'
+{
+  "api_token": "ACTUAL_TOKEN",
+  "default_team_id": ACTUAL_TEAM_ID,
+  "api_base": "https://api.resultmaps.com/api/v2"
+}
+JSONEOF
+```
+
+`umask 077` matters — a profile holds a bearer token, like `config.json`. Confirm the write the
+same way first-run setup does, and verify the token against `GET /users/me` **before** writing,
+so a bad paste never lands on disk.
+
+### List / remove
+
+Profiles are listed in Current State above. To remove one, delete its file — then remove the
+`RESULTKIT_PROFILE` line from any `.claude/settings.json` that names it, or that project starts
+failing with `NO_CONFIG` rather than quietly using the default.
 
 ## Flow
 
