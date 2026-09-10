@@ -8,31 +8,11 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 
 | Skill | Description |
 |-------|-------------|
-| `rkit:1on1` | View and manage one-on-one meetings, with items grouped by column. |
-| `rkit:board` | View any item's children as a kanban-style board of columns and items. |
-| `rkit:braindump` | Parse unstructured text — notes, emails, dictation — into organized action items. |
-| `rkit:columns` | Read your Day Plan Prioritizer's custom columns and what's open or done in each. |
-| `rkit:concepts` | ResultMaps product and domain concept reference. |
-| `rkit:headlines` | View and manage EOS headlines (People & Customer Headlines) for a team. |
-| `rkit:level10` | View and manage EOS Level 10 meeting artifacts — to-dos, issues, and headlines. |
-| `rkit:meetings` | Build and refresh a local ResultMaps team, project, and 1:1 IDs reference doc. |
-| `rkit:open` | Open anything in ResultKit in your browser, or get the right link for it. |
-| `rkit:pages` | List, read, create, update, move, and delete team Pages (the wiki/docs tree). |
-| `rkit:password-reset` | Trigger a password reset email for a user (admin only). |
-| `rkit:profile` | View your profile stats, measurables, rocks, feedback, and progress dashboard. |
-| `rkit:projects` | List active projects for a team and manage project items. |
-| `rkit:result-feed` | View and interact with team daily check-ins (result feeds). |
-| `rkit:result-update` | Compose and submit your daily check-in — the 90-second update practice. |
-| `rkit:reviews` | View and manage performance reviews, submit assessments, sign off, and rate core values. |
-| `rkit:scorecard` | View and manage your team's scorecard (measures/measurables). |
-| `rkit:seats` | View and manage your team's accountability chart (seats). |
-| `rkit:setup` | First-run configuration for ResultKit — sets up your API token and default team. |
-| `rkit:strategy` | View and manage your team's strategy tree — goals, rocks, objectives, and more. |
-| `rkit:success-criteria` | Review, grade, write, and rewrite the Success Criteria of any process document. |
-| `rkit:teams` | List your teams, view members, change roles, and manage team logos. |
-| `rkit:today` | View and manage today's day plan — the daily prioritizer. |
-| `rkit:vision` | View a team's vision and mission data (framework-aware). |
-| `rkit:weekly` | View and manage the team weekly board (Level 10 for EOS teams). |
+| `rkit:setup` | First-run configuration. Sets up API token, default team, and base URL. |
+| `rkit:today` | View and manage your day plan. Add, complete, and remove action items. |
+| `rkit:board` | View any item as a board. Columns are children, items are grandchildren. |
+| `rkit:weekly` | Team weekly board with framework-aware terminology (EOS, OKR, 4DX, etc.). |
+| `rkit:braindump` | Parse unstructured text (meeting notes, emails, dictation) into organized action items. |
 
 ## Prerequisites
 
