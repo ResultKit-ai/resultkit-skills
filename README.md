@@ -17,7 +17,7 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:level10` | View and manage EOS Level 10 meeting artifacts — to-dos, issues, and headlines. |
 | `rkit:meetings` | Build and refresh a local ResultMaps team, project, and 1:1 IDs reference doc. |
 | `rkit:open` | Open anything in ResultKit in your browser, or get the right link for it. |
-| `rkit:pages` | List, read, create, update, move, and delete team Pages (the wiki/docs tree). |
+| `rkit:pages` | List, read, create, update, move, and delete team Pages (the wiki/docs tree); show, filter by, add, or remove page labels. |
 | `rkit:password-reset` | Trigger a password reset email for a user (admin only). |
 | `rkit:profile` | View your profile stats, measurables, rocks, feedback, and progress dashboard. |
 | `rkit:projects` | List active projects for a team and manage project items. |
