@@ -18,6 +18,7 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 
 - **Confirm writes.** Before any POST/PATCH/DELETE, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation. GET requests execute immediately.
 - **Body is markdown by default.** Send the user's markdown as written with `?format=markdown` on create/update — the API converts it and stores the markdown source, so a markdown read gives back exactly what was written. Never convert locally. Say which format you used and name the alternative: markdown is the default (it uses fewer tokens and reads back unchanged); HTML is there for finer control of formatting. If the user says "use HTML", send their HTML unchanged with no `format` param. Never make them guess.
+- **What markdown renders.** As on GitHub: headings, bold/italic, bullet and numbered lists, `- [ ]` / `- [x]` checklists (real checkboxes), tables, quotes, code, links, and images (kept, never stripped). A single newline inside a paragraph is a line break; a blank line starts a new paragraph. So an address or a list of names can be written one per line and reads that way.
 - **Show IDs.** Always include page IDs (and parent IDs) in output.
 - **Concise output.** Trees and short summaries. No filler.
 - **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
