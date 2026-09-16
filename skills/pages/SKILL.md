@@ -1,6 +1,6 @@
 ---
 name: rkit:pages
-description: List, read, create, update, move, and delete team Pages (the team wiki/docs tree), and show, filter, add, or remove labels on pages, via the ResultMaps API. Use this skill when users ask about pages, team docs, team wiki, team notes, want to list pages, open or read a page, create a new page or doc, write content to a page, rename a page, move or nest a page under another, reorder pages, delete a page, show a page's labels, list pages by label, filter pages that carry a label, label or tag a page, or remove/unlabel a page's label.
+description: List, read, create, update, move, and delete team Pages (the team wiki/docs tree); show, filter, add, or remove labels on pages; and lock, unlock, or check the lock state of a page, via the ResultMaps API. Use this skill when users ask about pages, team docs, team wiki, team notes, want to list pages, open or read a page, create a new page or doc, write content to a page, rename a page, move or nest a page under another, reorder pages, delete a page, show a page's labels, list pages by label, filter pages that carry a label, label or tag a page, remove/unlabel a page's label, lock a page, unlock a page, unlock a page for themselves, re-lock a page for themselves, make a page read-only, or check whether a page is locked.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(pandoc *), Bash(npx *), Read, Glob, Grep, AskUserQuestion
 ---
@@ -23,6 +23,7 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 - **Concise output.** Trees and short summaries. No filler.
 - **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
 - **Respect the flags.** Use each page's `can_edit` / `can_delete` / `can_manage_permissions` to gate write suggestions, and `can_create_pages` from `GET /teams/{id}/settings` to gate create — never re-derive any of them from admin status.
+- **Lock/unlock needs edit rights.** Locking, unlocking, personal-unlock, and re-lock all require the same gate as editing the page — team admin, or author/editor/contributor role. Locking itself is never blocked by the lock (anyone who can edit can always toggle it), and it never changes who can edit — a view-only member still gets `forbidden`, never `page_locked`. While a page is locked, `rename`/`write` are refused for everyone but a personal-unlock holder; `move`/`reorder` still work — the lock gates content, not the page's place in the tree.
 - **Labels cost one call each.** No labels field on the pages list, no label filter — reading labels means `GET /custom-labels/content` per page. Fetch them only when the user asks for labels; never on a plain list. More than 50 pages in scope → say how many calls that is and get a yes before fetching.
 
 ## Argument Parsing
@@ -40,6 +41,11 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 | `reorder {page_id} to {position}` | Change position among siblings (0-based) |
 | `delete {page_id}` | Soft-delete a page (restorable) |
 | `restore {page_id}` | Restore a soft-deleted page |
+| `lock {page_id}` | Lock a page for everyone (confirms first) |
+| `unlock {page_id}` | Unlock a page for everyone (confirms first) |
+| `unlock {page_id} for me` | Personally unlock a locked page, just for the caller (confirms first) |
+| `relock {page_id} for me` | Undo a personal unlock — re-lock for the caller only (confirms first) |
+| `{page_id} locked?` | Report whether a page is locked, and for whom (read-only, no confirm) |
 | `labels` | List pages for default team as a tree, each with its labels |
 | `{team_id} labels` | List pages for specified team as a tree, each with its labels |
 | `under {parent_id} labels` | List a page and its descendants as a tree, each with its labels |
@@ -100,7 +106,7 @@ echo "$RESPONSE"
 
 `?format=markdown` returns `body` as markdown — the stored source, byte-for-byte, for a page that was written as markdown; converted from HTML for one that wasn't. Drop the param to see the raw HTML instead.
 
-Success: show title, id, parent (title if known), and the body as returned. Note `can_edit`/`can_delete` if the user is about to modify.
+Success: show title, id, parent (title if known), and the body as returned. Note `can_edit`/`can_delete` if the user is about to modify. If `locked` is true, say so — and whether the caller holds a personal unlock (`unlocked_for_me`) — so a blocked edit isn't a surprise.
 
 ## Flow: Create a Page
 
@@ -170,6 +176,75 @@ Status 204. Allowed for team admin or the page's author (403 otherwise). A delet
 ```
 
 Brings back a soft-deleted page with its comments intact. Report: "Restored page **{id}**: {title}."
+
+## Flow: Lock / Unlock a Page
+
+For `lock {page_id}`, `unlock {page_id}`, `unlock {page_id} for me`, and `relock {page_id} for me` — covers "lock this page", "lock the doc", "make it read-only" (→ lock); "unlock it" with no "for me" (→ global unlock); "unlock for me", "let me edit the locked page" (→ personal unlock); "re-lock for me" (→ personal re-lock).
+
+Plain "unlock" (no "for me") means the **global** lock — it reopens the page for everyone with edit rights. "Unlock for me" leaves the global lock in place and grants the caller a **personal** unlock instead. "Re-lock for me" undoes that personal unlock only; it never touches the global lock.
+
+### Step 1: Load the page and its current lock state
+
+```bash
+API_SH="<api.sh path>"
+PAGE=$("$API_SH" GET "/pages/PAGE_ID")   # team-agnostic; the team-scoped read 404s for a page on another team
+```
+
+Title from `PAGE.body.data.title`; the page's real `team_id` from `PAGE.body.data.team_id`; current state from `PAGE.body.data.locked` and `PAGE.body.data.unlocked_for_me`.
+
+### Step 2: Short-circuit no-ops
+
+- `lock`, already `locked: true` → "Page **{id}: {title}** is already locked." Stop — no write.
+- `unlock`, already `locked: false` → "Page **{id}: {title}** is already unlocked." Stop — no write.
+- `unlock for me`, already `unlocked_for_me: true` → "You already have a personal unlock on page **{id}: {title}**." Stop — no write.
+- `relock for me`, already `unlocked_for_me: false` → "You don't have a personal unlock on page **{id}: {title}** to undo." Stop — no write.
+
+### Step 3: Confirm
+
+- Lock: "Lock page **{title}** ({id}) for everyone? No one will be able to edit it until it's unlocked."
+- Unlock: "Unlock page **{title}** ({id}) for everyone?"
+- Unlock for me: "Unlock page **{title}** ({id}) just for you? It stays locked for everyone else."
+- Re-lock for me: "Re-lock page **{title}** ({id}) for yourself? You'll lose your personal unlock."
+
+### Step 4: Execute
+
+```bash
+# Global lock / unlock
+"$API_SH" PATCH "/teams/TEAM_ID/pages/PAGE_ID/lock" '{"locked": true}'    # lock
+"$API_SH" PATCH "/teams/TEAM_ID/pages/PAGE_ID/lock" '{"locked": false}'   # unlock
+
+# Personal unlock / re-lock — never touches the global lock
+"$API_SH" PATCH "/teams/TEAM_ID/pages/PAGE_ID/lock/me" '{"unlocked": true}'    # unlock for me
+"$API_SH" PATCH "/teams/TEAM_ID/pages/PAGE_ID/lock/me" '{"unlocked": false}'   # re-lock for me
+```
+
+`TEAM_ID` is the page's own `team_id` from Step 1.
+
+### Step 5: Report from the response
+
+- Lock (`.body.data.locked == true`) → "Locked page **{id}: {title}**. Only someone with a personal unlock can still edit it."
+- Unlock (`.body.data.locked == false`) → "Unlocked page **{id}: {title}**. Anyone with edit rights can edit it again."
+- Unlock for me (`.body.data.unlocked_for_me == true`) → "Unlocked page **{id}: {title}** just for you — it's still locked for everyone else."
+- Re-lock for me (`.body.data.unlocked_for_me == false`) → "Re-locked page **{id}: {title}** for yourself."
+
+Errors → see **Error Handling**.
+
+## Flow: Check Whether a Page Is Locked
+
+For `{page_id} locked?` and any plain "is this page locked" question.
+
+```bash
+API_SH="<api.sh path>"
+PAGE=$("$API_SH" GET "/pages/PAGE_ID")
+```
+
+Report from `PAGE.body.data`:
+- `locked: false` → "Page **{id}: {title}** is not locked."
+- `locked: true`, `unlocked_for_me: true` → "Page **{id}: {title}** is locked for the team, but you hold a personal unlock — you can still edit it."
+- `locked: true`, `unlocked_for_me: false`, `can_edit: true` → "Page **{id}: {title}** is locked. You can unlock it for everyone (`/rkit:pages unlock {id}`) or just for yourself (`/rkit:pages unlock {id} for me`)."
+- `locked: true`, `unlocked_for_me: false`, `can_edit: false` → "Page **{id}: {title}** is locked, and you don't have edit rights on it."
+
+Read-only — executes immediately, no confirmation.
 
 ## Label Name → ID Resolution
 
@@ -315,6 +390,7 @@ api.sh wraps every response as `{"status": N, "body": {...}}` — always read fi
 - `status: 400` → show the validation message (empty title, title > 255, body > 100KB, cross-team parent, cycle).
 - `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
 - `status: 403` → "You don't have permission — editing needs an author/editor/contributor role on the page, or team admin. If it was a create, this team is set to `admins_only`."
+- `status: 403`, `.body.error.code == "page_locked"` (only from a `rename`/`write` carrying title or body — never from `lock`/`unlock` themselves, `create`, `move`, `delete`, or a `parent_id`/`position`-only PATCH) → surface the server's message verbatim: "This page is locked." Then offer the way through: "`/rkit:pages unlock {id} for me`" if the caller has edit rights, or "ask someone with edit rights to `/rkit:pages unlock {id}`" otherwise.
 - `status: 404` → "Team or page not found (404)." — also what you get for a page outside your audience, or one that's been deleted.
 
 **Label calls** (`/custom-labels/content`, `/custom-labels/manage`) carry their own message in `.body.error.message`:
@@ -339,4 +415,4 @@ api.sh wraps every response as `{"status": N, "body": {...}}` — always read fi
 
 ## References
 
-- [ResultMaps V2 API Reference](references/api-reference.md) — see the **Pages** section for full payloads, the permission model (author > editor > contributor > viewer), and `/pages/{id}/permissions`; see **Custom Labels** for the label object's fields and the personal/team/project scope model.
+- [ResultMaps V2 API Reference](references/api-reference.md) — see the **Pages** section for full payloads, the permission model (author > editor > contributor > viewer), page locking (**Page Lifecycle**), and `/pages/{id}/permissions`; see **Custom Labels** for the label object's fields and the personal/team/project scope model.
