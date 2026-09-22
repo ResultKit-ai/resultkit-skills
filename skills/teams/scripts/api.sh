@@ -110,8 +110,8 @@ RESPONSE=$(curl "${CURL_ARGS[@]}" "$URL" 2>/dev/null) || {
 
 # --- Parse response ---
 # Last line is HTTP status code, everything before is the body
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-RESP_BODY=$(echo "$RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s' "$RESPONSE" | tail -1)
+RESP_BODY=$(printf '%s' "$RESPONSE" | sed '$d')
 
 # Validate HTTP code is numeric
 if ! [[ "$HTTP_CODE" =~ ^[0-9]+$ ]]; then
@@ -119,11 +119,18 @@ if ! [[ "$HTTP_CODE" =~ ^[0-9]+$ ]]; then
   exit 0
 fi
 
-# Validate response body is valid JSON, fall back to wrapping as string
-if echo "$RESP_BODY" | jq empty 2>/dev/null; then
-  echo "{\"status\":${HTTP_CODE},\"body\":${RESP_BODY}}"
+# Empty (or whitespace-only) body — e.g. any 204 No Content, such as
+# DELETE /items/{id}/assignees/{user_id} — must not fall into the JSON
+# branch below: `jq empty` exits 0 on empty input too, which printed the
+# invalid {"status":204,"body":} with nothing after the colon. Emit an
+# explicit null body instead and keep the real status code.
+if [ -z "$(printf '%s' "$RESP_BODY" | tr -d '[:space:]')" ]; then
+  printf '%s\n' "{\"status\":${HTTP_CODE},\"body\":null}"
+elif printf '%s' "$RESP_BODY" | jq empty 2>/dev/null; then
+  # Valid JSON response
+  printf '%s\n' "{\"status\":${HTTP_CODE},\"body\":${RESP_BODY}}"
 else
   # Non-JSON response — wrap as string
-  ESCAPED=$(echo "$RESP_BODY" | jq -Rs .)
-  echo "{\"status\":${HTTP_CODE},\"body\":${ESCAPED}}"
+  ESCAPED=$(printf '%s' "$RESP_BODY" | jq -Rs .)
+  printf '%s\n' "{\"status\":${HTTP_CODE},\"body\":${ESCAPED}}"
 fi
