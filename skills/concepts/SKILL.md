@@ -11,7 +11,7 @@ description: >
 allowed-tools: Read, Glob, Grep
 ---
 
-**Last updated:** 2026-05-09.
+**Last updated:** 2026-09-23.
 
 # ResultMaps Concepts
 
@@ -32,10 +32,13 @@ Organizations use ResultMaps to:
 ## Organizational Structure
 
 ### Account
-The tenant boundary. One company = one account. Everything lives inside an account: users, teams, goals, items, measures.
+Your account holds your subscription, payment details, and billing history. One account can pay for many organizations. Boundaries in full: `references/boundaries.md`.
+
+### Organization
+An organization is the company.
 
 ### Group (Team)
-The organizational unit. Groups form a hierarchy — a company has a root group, with child teams beneath it, and sub-teams beneath those. This tree structure means a department can contain multiple teams, each with their own goals and meetings.
+A team is a working unit inside an organization. The company has a top-level team, and teams nest beneath it.
 
 ### User
 A person in the system. Users belong to one or more groups through memberships. A user can be a member of multiple teams simultaneously.
@@ -288,9 +291,10 @@ Teams can also override any of these labels with their own custom names.
 
 ## Key Relationships Summary
 
-- An **Account** contains many **Groups** and **Users**
-- **Groups** nest hierarchically (company → departments → teams)
-- **Users** belong to groups through **Memberships**
+- An **Account** holds many **Organizations** (billing only)
+- An **Organization** is the company and holds its **Teams**
+- **Teams** nest beneath the company's top-level team
+- **Users** belong to **Teams** through **Memberships**
 - **Users** are assigned to **Seats** (roles)
 - **Groups** have a **Vision**, **Missions**, and **Measures**
 - **Missions** contain **Result Areas**
