@@ -36,7 +36,7 @@ data
 │   ├── login                     string
 │   └── avatar_url                string | null
 │
-├── organizations[]               # Every org the user belongs to
+├── organizations[]               # Every org the user belongs to — served from accounts today; an organization is a root team, not an account
 │   ├── id                        integer (account ID)
 │   ├── name                      string
 │   ├── role                      "owner" | "member"
