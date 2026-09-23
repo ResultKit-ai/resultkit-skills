@@ -38,7 +38,7 @@ Your account holds your subscription, payment details, and billing history. One 
 An organization is the company.
 
 ### Group (Team)
-A team is a working unit inside an organization. The company is the top-level team, and teams nest beneath it.
+A team is a working unit inside an organization. The company is the top-level team, and its internal teams nest beneath it.
 
 ### User
 A person in the system. Users belong to one or more groups through memberships. A user can be a member of multiple teams simultaneously.
