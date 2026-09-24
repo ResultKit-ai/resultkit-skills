@@ -42,6 +42,10 @@ Parse the user input to determine which flow to follow:
 | `remove {item_id}` | Remove from L10 Board |
 | `remove headline {id}` | Archive Headline |
 | `update headline {id} "text"` | Update Headline Text |
+| `comment {item_id} "text"` *(+ "leave a note on {id}", "comment on {id}")* | Add a Comment to an Item |
+| `comments {item_id}` *(+ "show comments on {id}", "what did people say on {id}")* | List Comments on an Item |
+| `edit comment {comment_id} "text"` | Edit My Comment |
+| `delete comment {comment_id}` | Delete My Comment |
 | `--team {id}` *(anywhere)* | Override team ID for any flow |
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
@@ -495,6 +499,139 @@ Only include `text` if text was provided. Only include `expires_at` if `--expire
 
 ---
 
+## Flow: Add Comment to an Item
+
+**Trigger**: `comment {item_id} "text"` — to-dos, issues, done, and parked items all support comments (they're the same underlying object, just different statuses). Headlines do not — a headline can't carry a comment.
+
+### Step 1: Parse and validate
+
+Extract the item ID and comment text. If text is empty → "Comment text cannot be empty."
+
+### Step 2: Fetch item
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
+echo "$RESPONSE"
+```
+
+- If 404 → "Item {item_id} not found."
+
+### Step 3: Confirm
+
+> Add comment to **{item_name}** (ID: {item_id}):
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation.
+
+### Step 4: Execute
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body": "COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+### Step 5: Handle response
+
+- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to **{item_name}**: "{body}"`
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling
+
+---
+
+## Flow: List Comments on an Item
+
+**Trigger**: `comments {item_id}`
+
+### Step 1: Fetch comments and item name
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
+echo "$RESPONSE"
+```
+
+### Step 2: Handle response
+
+- **Status 200**: Extract `body.data` array. If empty → "No comments on item {item_id}." If present, display:
+
+  ```
+  ## Comments — {item_name} (ID: {item_id})
+
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Talked to the vendor — quote is in the shared drive. | 2026-03-07 14:02 |
+  ```
+
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404** → "Item {item_id} not found."
+- **Error** → use Error Handling
+
+---
+
+## Flow: Edit My Comment
+
+**Trigger**: `edit comment {comment_id} "text"`
+
+### Step 1: Confirm
+
+> Edit comment **{comment_id}** to:
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation.
+
+### Step 2: Execute
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** updated."
+- **Status 403** → "You can only edit your own comments."
+- **Status 404** → "Comment {comment_id} not found."
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling
+
+---
+
+## Flow: Delete My Comment
+
+**Trigger**: `delete comment {comment_id}`
+
+### Step 1: Confirm
+
+> Delete comment **{comment_id}**? This cannot be undone.
+
+Wait for confirmation.
+
+### Step 2: Execute
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** deleted."
+- **Status 403** → "You can only delete your own comments (a team admin can also delete any comment on this item)."
+- **Status 404** → "Comment {comment_id} not found."
+- **Error** → use Error Handling
+
+---
+
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
@@ -509,6 +646,10 @@ Only include `text` if text was provided. Only include `expires_at` if `--expire
 - **Empty section** → show section header with "(empty)"
 - **Done section overflow** → "Showing {returned} of {total} — more items exist"
 - **Empty text for create** → "To-do/Issue/Headline name/text cannot be empty."
+- **Empty comment text** → "Comment text cannot be empty."
+- **Comment not found (404)** → "Comment {id} not found."
+- **Edit/delete someone else's comment (403)** → "You can only edit/delete your own comments."
+- **Comment on a headline** → not supported — headlines can't carry comments.
 - **Unauthorized (401)** → "Unauthorized (401). Run `/rkit:setup` to update your token."
 - **Network error** → "Network error. Check your connection."
 

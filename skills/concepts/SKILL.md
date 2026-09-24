@@ -11,7 +11,7 @@ description: >
 allowed-tools: Read, Glob, Grep
 ---
 
-**Last updated:** 2026-09-23.
+**Last updated:** 2026-09-24.
 
 # ResultMaps Concepts
 
@@ -99,7 +99,7 @@ The measurable outcome beneath a goal. Proves whether the goal is on track or co
 | SRT | Result |
 
 ### Item
-Actionable work — a task, to-do, or issue. Items form their own hierarchy (parent/child), so a large task can be broken into sub-tasks. Items can be aligned to goals, meaning "this work supports that objective."
+Actionable work — a task, to-do, or issue. Items form their own hierarchy (parent/child), so a large task can be broken into sub-tasks. Items can be aligned to goals, meaning "this work supports that objective." Items carry comments, so anyone who can see an item can discuss it in place — handing work back and forth — without changing its status or fields.
 
 ---
 

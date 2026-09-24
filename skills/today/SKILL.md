@@ -37,6 +37,10 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 | "mark done", "check off", "complete", "finish {id}", "done {id}", "mark done for today", "complete for today" | Mark a day plan item as complete | `mark_item_complete` |
 | "undo {id}", "uncheck", "mark incomplete", "uncomplete" | Undo a completed day plan item | `mark_item_incomplete` |
 | "remove from today", "take off my plan", "remove {id}", "don't need this today", "skip this", "drop from plan", "remove from tomorrow" | Remove an item from a day plan | `remove_from_day_plan` |
+| "comment on {id}", "add a comment to {id}", "leave a note on {id}", "leave a note on that to-do" | Add a comment to an item | `add_comment_on_item` |
+| "show comments on {id}", "what did people say on {id}", "read the notes on {id}" | List comments on an item | `list_comments_on_item` |
+| "edit comment {comment_id}", "update comment {comment_id}", "fix my comment {comment_id}" | Edit my comment | `edit_comment` |
+| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | `delete_comment` |
 
 ---
 
@@ -246,6 +250,126 @@ echo "$RESPONSE"
 
 ---
 
+### add_comment_on_item
+
+#### Step 1: Resolve parameters
+
+Extract the **item ID** and the **comment text** from args.
+
+#### Step 2: Confirm
+
+Display:
+> Add comment to item **{id}**:
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation.
+
+#### Step 3: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body":"COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+#### Step 4: Handle response
+
+- **Status 201**: Extract the created comment from `body.data`. Display:
+  > Comment added (ID: {id}) to item **{item_id}**: "{body}"
+- **Status 404**: "Item {id} not found."
+- **Status 422**: "Comment text cannot be empty."
+- **Other errors**: Handle per error handling rules.
+
+---
+
+### list_comments_on_item
+
+#### Step 1: Resolve parameters
+
+Extract the **item ID** from args.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: Extract `body.data` array. If empty:
+  > No comments on item {id}.
+
+  If present, display:
+  ```
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
+  ```
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404**: "Item {id} not found."
+- **Other errors**: Handle per error handling rules.
+
+---
+
+### edit_comment
+
+#### Step 1: Resolve parameters and confirm
+
+Extract the **comment ID** and **new text**. Display:
+> Edit comment **{comment_id}** to: "{text}"?
+
+Wait for confirmation.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body":"NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** updated."
+- **Status 403**: "You can only edit your own comments."
+- **Status 404**: "Comment {comment_id} not found."
+- **Status 422**: "Comment text cannot be empty."
+- **Other errors**: Handle per error handling rules.
+
+---
+
+### delete_comment
+
+#### Step 1: Resolve parameters and confirm
+
+Extract the **comment ID**. Display:
+> Delete comment **{comment_id}**? This cannot be undone.
+
+Wait for confirmation.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** deleted."
+- **Status 403**: "You can only delete your own comments (a team admin can also delete any comment on this item)."
+- **Status 404**: "Comment {comment_id} not found."
+- **Other errors**: Handle per error handling rules.
+
+---
+
 ### Edge Cases
 
 - **No config**: Any flow → "Config not found. Run `/rkit:setup` first."
@@ -253,6 +377,9 @@ echo "$RESPONSE"
 - **Item already on plan** (PUT/attach): Idempotent — API returns 200, confirm it's on the plan.
 - **Empty plan on view**: Show helpful message with add hint.
 - **Date plan doesn't exist**: 404 → "No plan exists for {date}."
+- **Empty comment text**: "Comment text cannot be empty."
+- **Comment not found (404)**: "Comment {id} not found."
+- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
 
 ---
 

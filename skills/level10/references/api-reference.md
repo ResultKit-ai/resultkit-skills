@@ -95,20 +95,84 @@ Smart text: `POST /items` supports `@username` in name to auto-assign, and hasht
 | GET | `/items/{id}/comments` | List comments (chronological, paginated) | "show comments", "show notes", "what's been said" | `/items/{id}` |
 | POST | `/items/{id}/comments` | Create comment (body: body*) | "add comment", "leave a note", "comment on" | `/items/{id}` |
 
+**Permission (both routes)**: view access to the item — the same rule as reading the item itself, including the 1-on-1-participant fallback (a participant of a 1:1 the item is shared to may read and post even without ordinary view access). Not edit-gated — any viewer may comment. Errors: 404 if the item doesn't exist; 403 if it exists but isn't viewable (and no 1-on-1 fallback applies); 422 on POST with an empty/whitespace-only `body`; 400 on a non-numeric `{id}` or unparseable JSON body.
+
+**Type scope — verified against the route source, not assumed**: `commentable_type` is hardcoded to `Item`, so this endpoint only ever reads/writes comments on `Item` rows. To-dos, issues, day-plan items, and **milestones** are Items and work here (`createMilestone` persists a Milestone as an Item). **Rocks and Goals (yearly/quarterly) are NOT Items** — they're `Goal` rows, so a rock/goal id 404s here as "Item not found," and there is no `/goals/{id}/comments` or `/rocks/{id}/comments` route anywhere in the v2 API. **Headlines are not Items either** — a headline IS a `Comment` row itself (`is_kudos: true`, no `commentable_id`/`commentable_type` of its own), so it cannot carry a comment through this or any route. Projects get their own alias, `/projects/{id}/comments` (documented under Projects below) — identical shape and `commentable_type: 'Item'`, gated to view access, but with **no** 1-on-1 fallback.
+
 Comment fields: `id`, `body`, `author` (UserSimple), `created_at`, `updated_at` (equal to `created_at` when unedited; later when edited — use to show "edited" badge).
+
+**Example — POST `/items/415/comments`**:
+```json
+{ "body": "Talked to the vendor — quote is in the shared drive." }
+```
+Response `201`:
+```json
+{
+  "data": {
+    "id": 9001,
+    "body": "Talked to the vendor — quote is in the shared drive.",
+    "author": { "id": 7, "login": "sarah", "first_name": "Sarah", "last_name": "Lee" },
+    "created_at": "2026-09-24T14:02:00.000Z",
+    "updated_at": "2026-09-24T14:02:00.000Z"
+  }
+}
+```
+
+**Example — GET `/items/415/comments`** → `200`:
+```json
+{
+  "data": [
+    {
+      "id": 9001,
+      "body": "Talked to the vendor — quote is in the shared drive.",
+      "author": { "id": 7, "login": "sarah", "first_name": "Sarah", "last_name": "Lee" },
+      "created_at": "2026-09-24T14:02:00.000Z",
+      "updated_at": "2026-09-24T14:02:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "per_page": 100, "total": 1, "total_pages": 1 }
+}
+```
 
 ### Comment Edit / Delete (flat by id)
 
-Flat routes that work for comments on any surface (Items, Projects, Result Feed, etc.).
+Flat routes that work for a comment on any commentable surface (Item, Project, Result Feed report, Page, Goal, and others) — one handler branches on the comment's own `commentable_type`.
 
 | Method | Path | Description | User Phrases | Web URL |
 |--------|------|-------------|--------------|---------|
-| PATCH | `/comments/{commentId}` | Edit a comment body (body: body* HTML). Author-only. Empty body returns 422. | "edit comment", "update comment", "fix my comment" | — |
+| PATCH | `/comments/{commentId}` | Edit a comment body (body: body* HTML, ≤ 65,535 bytes). Author-only. Empty body returns 422. | "edit comment", "update comment", "fix my comment" | — |
 | DELETE | `/comments/{commentId}` | Remove a comment (hard delete). Author or surface admin. Cleans up activity feed + decrements comment_count. | "delete comment", "remove comment", "remove my note" | — |
 
-- `PATCH` response: `{ data: { id, body, author, created_at, updated_at } }`
-- `DELETE` response: `{ data: { id, deleted: true } }`
-- 403 if non-author tries to edit, or non-author/non-admin tries to delete. 404 if comment not viewable (no existence leak). 422 on empty edit body.
+- `PATCH` response: `{ data: { id, body, author, created_at, updated_at } }` (200)
+- `DELETE` response: `{ data: { id, deleted: true } }` (200)
+- **Permission — edit**: comment author only (`comment.user_id === current user`).
+- **Permission — delete**: comment author, OR — for an Item/Project comment specifically — a team admin of the item's team (`isTeamAdmin()`: group creator, or an editor/author/contributor on the Group Access List, including ancestor teams). A Result Feed (daily report) comment: the report owner instead. Any other surface: author only.
+- **Existence-leak gate**: 404 (never 403) both when the comment doesn't exist and when it exists but its surface isn't viewable to the caller — the two cases read identically so a caller can't probe for what they can't see.
+- 403 if a non-author tries to edit, or a non-author/non-admin tries to delete. 422 on an empty or over-length (> 65,535 byte) edit body.
+- `comment_count` is decremented on delete only for surfaces that track one — Items and Projects do; a Result Feed report does not, so the decrement is skipped there.
+- These two routes accept a `commentId` for **any** `commentable_type`, including `Goal` — but nothing in the v2 API creates or lists a Goal comment (no `/goals/{id}/comments` route exists), so in practice the only comments with an id to edit or delete here are ones reached through `/items/{id}/comments` or `/projects/{id}/comments`.
+
+**Example — PATCH `/comments/9001`**:
+```json
+{ "body": "Talked to the vendor — quote is in the shared drive, updated with tax." }
+```
+Response `200`:
+```json
+{
+  "data": {
+    "id": 9001,
+    "body": "Talked to the vendor — quote is in the shared drive, updated with tax.",
+    "author": { "id": 7, "login": "sarah", "first_name": "Sarah", "last_name": "Lee" },
+    "created_at": "2026-09-24T14:02:00.000Z",
+    "updated_at": "2026-09-24T14:11:00.000Z"
+  }
+}
+```
+
+**Example — DELETE `/comments/9001`** → `200`:
+```json
+{ "data": { "id": 9001, "deleted": true } }
+```
 
 ### Item Attachments
 

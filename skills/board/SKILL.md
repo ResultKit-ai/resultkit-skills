@@ -32,6 +32,10 @@ Parse the user input to determine which flow to follow:
 | `add {board_id} ...` | Add Item |
 | `remove {item_id}` | Remove Item |
 | `bulk-move {item_ids} {parent_id}` | Bulk Move Items |
+| `comment {item_id} "text"` *(+ "leave a note on {id}", "comment on {id}")* | Add a Comment to an Item |
+| `comments {item_id}` *(+ "show comments on {id}", "what did people say on {id}")* | List Comments on an Item |
+| `edit comment {comment_id} "text"` | Edit My Comment |
+| `delete comment {comment_id}` | Delete My Comment |
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
 
@@ -413,6 +417,111 @@ If `failed > 0`, display an error table:
 
 ---
 
+## Flow: Add Comment to an Item
+
+**Trigger**: `comment {item_id} "text"`
+
+### Step 1: Parse, validate, and fetch item
+
+Extract the item ID and comment text. If text is empty → "Comment text cannot be empty."
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
+echo "$RESPONSE"
+```
+
+- If 404 → "Item {item_id} not found."
+
+### Step 2: Confirm and execute
+
+Describe:
+> Add comment to **{item_name}** (ID: {item_id}):
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation. Then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body": "COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+### Step 3: Handle response
+
+- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to **{item_name}**: "{body}"`
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling above
+
+---
+
+## Flow: List Comments on an Item
+
+**Trigger**: `comments {item_id}`
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
+echo "$RESPONSE"
+```
+
+- **Status 200**: Extract `body.data` array. If empty → "No comments on item {item_id}." If present, display:
+
+  ```
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Talked to the vendor — quote is in the shared drive. | 2026-03-07 14:02 |
+  ```
+
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404** → "Item {item_id} not found."
+- **Error** → use Error Handling above
+
+---
+
+## Flow: Edit My Comment
+
+**Trigger**: `edit comment {comment_id} "text"`
+
+Confirm: `Edit comment **{comment_id}** to: "{text}"? Proceed?` Then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** updated."
+- **Status 403** → "You can only edit your own comments."
+- **Status 404** → "Comment {comment_id} not found."
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling above
+
+---
+
+## Flow: Delete My Comment
+
+**Trigger**: `delete comment {comment_id}`
+
+Confirm: `Delete comment **{comment_id}**? This cannot be undone.` Then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** deleted."
+- **Status 403** → "You can only delete your own comments (a team admin can also delete any comment on this item)."
+- **Status 404** → "Comment {comment_id} not found."
+- **Error** → use Error Handling above
+
+---
+
 ## Edge Cases
 
 - **Item has no children** → "No children found for item {id}."
@@ -432,6 +541,9 @@ If `failed > 0`, display an error table:
 - **Bulk-move partial failure** → show summary line + error table with per-item reasons
 - **Bulk-move all items fail** → show "Moved 0 items under #{id}. {N} failed." with full error table
 - **Bulk-move self-reference** → item rejected with reason `self_reference` in error table
+- **Empty comment text** → "Comment text cannot be empty."
+- **Comment not found (404)** → "Comment {id} not found."
+- **Edit/delete someone else's comment (403)** → "You can only edit/delete your own comments."
 
 ## References
 

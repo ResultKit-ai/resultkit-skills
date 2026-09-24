@@ -36,6 +36,10 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 | "add item {id} to done", "put {id} in next", "attach {id} to blocked", "attach {id} to done", "move {id} to next" | Attach an existing item to a section by ID | `attach_existing_item` |
 | "remove {id} from done", "take {id} off next", "drop {id} from blocked", "remove {id}" | Remove an item from a section | `remove_item` |
 | "submit", "finalize", "done for the day", "submit check-in", "share check-in", "submit update", "send update" | Submit and share update | `submit_check_in` |
+| "comment on {id}", "add a comment to {id}", "leave a note on {id}" | Add a comment to an item in my update | `add_comment_on_item` |
+| "show comments on {id}", "what did people say on {id}" | List comments on an item in my update | `list_comments_on_item` |
+| "edit comment {comment_id}", "update comment {comment_id}" | Edit my comment | `edit_comment` |
+| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | `delete_comment` |
 
 ---
 
@@ -263,6 +267,128 @@ echo "$RESPONSE"
 
 ---
 
+### add_comment_on_item
+
+Items in your Done/Next/Blocked sections are ordinary items — comments go straight to the item, not to the check-in report.
+
+#### Step 1: Resolve parameters
+
+Extract the **item ID** and **comment text** from args.
+
+#### Step 2: Confirm
+
+Display:
+> Add comment to item **{id}**:
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation.
+
+#### Step 3: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body":"COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+#### Step 4: Handle response
+
+- **Status 201**: Extract the created comment from `body.data`. Display:
+  > Comment added (ID: {id}) to item **{item_id}**: "{body}"
+- **Status 404**: "Item {id} not found."
+- **Status 422**: "Comment text cannot be empty."
+- **Other errors**: Handle per error handling table.
+
+---
+
+### list_comments_on_item
+
+#### Step 1: Resolve parameters
+
+Extract the **item ID** from args.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: Extract `body.data` array. If empty:
+  > No comments on item {id}.
+
+  If present, display:
+  ```
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
+  ```
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404**: "Item {id} not found."
+- **Other errors**: Handle per error handling table.
+
+---
+
+### edit_comment
+
+#### Step 1: Resolve parameters and confirm
+
+Extract the **comment ID** and **new text**. Display:
+> Edit comment **{comment_id}** to: "{text}"?
+
+Wait for confirmation.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body":"NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** updated."
+- **Status 403**: "You can only edit your own comments."
+- **Status 404**: "Comment {comment_id} not found."
+- **Status 422**: "Comment text cannot be empty."
+- **Other errors**: Handle per error handling table.
+
+---
+
+### delete_comment
+
+#### Step 1: Resolve parameters and confirm
+
+Extract the **comment ID**. Display:
+> Delete comment **{comment_id}**? This cannot be undone.
+
+Wait for confirmation.
+
+#### Step 2: Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+#### Step 3: Handle response
+
+- **Status 200**: "Comment **{comment_id}** deleted."
+- **Status 403**: "You can only delete your own comments (a team admin can also delete any comment on this item)."
+- **Status 404**: "Comment {comment_id} not found."
+- **Other errors**: Handle per error handling table.
+
+---
+
 ## How to Interpret
 
 1. **Read the user's message.** Look for trigger words/phrases from the table.
@@ -353,6 +479,9 @@ Always use `done`, `next`, `blocked` in API paths.
 - **Item already in section** (PUT/attach): Idempotent — API returns 200.
 - **Empty check-in on view**: Show helpful message with add hint.
 - **No default_team_id for submit**: Prompt user for team ID.
+- **Empty comment text**: "Comment text cannot be empty."
+- **Comment not found (404)**: "Comment {id} not found."
+- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
 
 ## References
 

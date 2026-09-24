@@ -36,6 +36,10 @@ Parse the user input to determine which flow to follow:
 | `{meeting_id} add {item_id}` | Add Existing Item |
 | `{meeting_id} remove {item_id}` | Remove Item |
 | `{meeting_id} notes "text"` | Save Notes (Enhancement) |
+| `{meeting_id} comment {item_id} "text"` *(+ "leave a note on {id}", "comment on {id}")* | Add a Comment to an Item |
+| `{meeting_id} comments {item_id}` *(+ "show comments on {id}", "what did people say on {id}")* | List Comments on an Item |
+| `{meeting_id} edit comment {comment_id} "text"` | Edit My Comment |
+| `{meeting_id} delete comment {comment_id}` | Delete My Comment |
 | `--team {id}` *(anywhere in args)* | Override team ID for any flow |
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
@@ -392,6 +396,93 @@ echo "$RESPONSE"
 
 ---
 
+## Flow: Add Comment to an Item
+
+**Trigger**: `{meeting_id} comment {item_id} "text"`
+
+Comments target the item directly (`/items/{id}/comments`), not the meeting — the `meeting_id` prefix is only this skill's own addressing convention, kept consistent with `move`/`add`/`remove`. A participant of this 1-on-1 can comment on an item shared to it even without ordinary view access to the item — the API grants that fallback specifically for 1:1 participants.
+
+### Step 1: Parse and validate
+
+Extract the item ID and comment text. If text is empty → "Comment text cannot be empty."
+
+### Step 2: Confirm and execute
+
+> Add comment to item **{item_id}** in one-on-one {meeting_id}:
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation. Then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body": "COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+### Step 3: Handle response
+
+- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to item **{item_id}**: "{body}"`
+- **Status 403** → "Not authorized to comment on this item."
+- **Status 404** → "Item {item_id} not found."
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling above
+
+---
+
+## Flow: List Comments on an Item
+
+**Trigger**: `{meeting_id} comments {item_id}`
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
+echo "$RESPONSE"
+```
+
+- **Status 200**: Extract `body.data` array. If empty → "No comments on item {item_id}." If present, display:
+
+  ```
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
+  ```
+
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404** → "Item {item_id} not found."
+- **Error** → use Error Handling above
+
+---
+
+## Flow: Edit / Delete My Comment
+
+**Trigger**: `{meeting_id} edit comment {comment_id} "text"` or `{meeting_id} delete comment {comment_id}`
+
+**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`, then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** updated." · **403** → "You can only edit your own comments." · **404** → "Comment {comment_id} not found." · **422** → "Comment text cannot be empty."
+
+**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then:
+
+```bash
+API_SH="<api.sh path from Current State>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** deleted." · **403** → "You can only delete your own comments (a team admin can also delete any comment on this item)." · **404** → "Comment {comment_id} not found."
+
+---
+
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
@@ -404,6 +495,9 @@ echo "$RESPONSE"
 - **Item not found (add existing)** → "Item {id} not found."
 - **Creator names empty** → fall back to `login` field
 - **Empty notes text** → warn and do not submit
+- **Empty comment text** → "Comment text cannot be empty."
+- **Comment not found (404)** → "Comment {id} not found."
+- **Edit/delete someone else's comment (403)** → "You can only edit/delete your own comments."
 
 ## References
 

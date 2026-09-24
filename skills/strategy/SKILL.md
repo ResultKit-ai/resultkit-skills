@@ -36,6 +36,10 @@ View and manage the team strategy tree.
 | `update "NAME" [name=...] [description=...] [status=...] [due=...] [assignees=ID,...]` | Update a strategy object |
 | `align "NAME" under "PARENT"` | Link an object to a parent in the tree |
 | `detach "NAME" from "PARENT" [--archive]` | Unlink an object from a parent |
+| `comment "NAME" "text"` | Add a comment — **milestones only**, see Flow: Comment on a Strategy Object |
+| `comments "NAME"` | List comments — **milestones only** |
+| `edit comment {comment_id} "text"` | Edit my comment |
+| `delete comment {comment_id}` | Delete my comment |
 
 ---
 
@@ -437,6 +441,74 @@ echo "$RESPONSE"
 
 ---
 
+## Flow: Comment on a Strategy Object
+
+Triggered when: first arg is `comment` or `comments`.
+
+**Comments only exist for milestones.** A milestone is stored as an Item, so it has comments through `/items/{id}/comments` like any other item. A yearly goal and a rock are stored as `Goal` rows, not Items — the API has no `/goals/{id}/comments` or `/rocks/{id}/comments` route at all, so there is nothing this skill can call on their behalf. Do not attempt the item-comments endpoint against a goal or rock id — it would 404 as "Item not found," which would misleadingly read as a bad ID rather than an unsupported action.
+
+### Step 1: Resolve the object
+
+Fetch tree (if not already fetched). Resolve the object name via Object Name Resolution.
+
+### Step 2: Type guard
+
+- `object_type == "milestone"` → continue to Step 3.
+- `object_type == "yearly_goal"` or `object_type == "rock"` → stop and show:
+  > Comments aren't supported for {FrameworkLabel} objects — only {milestone FrameworkLabel, e.g. "Milestone"/"Key Result"} objects carry comments. Rocks and goals are Goal objects in the API, not Items, and there is no comment endpoint for them.
+
+### Step 3 (add): Parse, confirm, execute
+
+Extract the comment text (required, quoted string after the object name). Empty → "Comment text cannot be empty."
+
+> Add comment to **{name}** (milestone #{id}):
+> "{text}"
+>
+> Proceed?
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" POST "/items/$OBJECT_ID/comments" '{"body":"COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+- **201**: Extract the new comment from `body.data`. Show: "Comment added (ID: {id}) to {name}: \"{body}\"."
+- **422**: "Comment text cannot be empty."
+- Other errors: Handle per Error Handling table.
+
+### Step 3 (list): Execute
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" GET "/items/$OBJECT_ID/comments")
+echo "$RESPONSE"
+```
+
+- **200**: Extract `body.data` array. Empty → "No comments on {name}." Otherwise, table of ID, Author, Comment, Time (append "(edited)" when `updated_at` > `created_at`).
+- Other errors: Handle per Error Handling table.
+
+### Flow: Edit / Delete My Comment
+
+Triggered when: first arg is `edit comment` or `delete comment`. Unscoped by object type — these act on a comment id directly.
+
+**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"?`, then:
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" PATCH "/comments/$COMMENT_ID" '{"body":"NEW_TEXT"}')
+echo "$RESPONSE"
+```
+- **200**: "Comment **{comment_id}** updated." · **403** → "You can only edit your own comments." · **404** → "Comment {comment_id} not found." · **422** → "Comment text cannot be empty."
+
+**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then:
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" DELETE "/comments/$COMMENT_ID")
+echo "$RESPONSE"
+```
+- **200**: "Comment **{comment_id}** deleted." · **403** → "You can only delete your own comments (a team admin can also delete any comment on this milestone)." · **404** → "Comment {comment_id} not found."
+
+---
+
 ## Schemas
 
 **TargetResponse (from GET /teams/{id}/targets):**
@@ -542,6 +614,10 @@ Note: Milestone responses do NOT include `updated_at`.
 - **Inherited node targeted for edit**: Block with clear message identifying the source team.
 - **Multiple name matches**: Show disambiguation list with ID, object_type, status, and due date.
 - **Unknown framework**: Use object_type as-is for labels (fallback column).
+- **Comment on a rock or goal**: Not supported — refuse per Flow: Comment on a Strategy Object, do not call the item-comments endpoint.
+- **Empty comment text**: "Comment text cannot be empty."
+- **Comment not found (404)**: "Comment {id} not found."
+- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
 
 ## References
 

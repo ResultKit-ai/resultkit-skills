@@ -33,6 +33,10 @@ List active projects for a team. Drill into a project to see its columns and add
 | `{project_id} columns` | Show columns (direct children) of a project |
 | `{project_id} add "item name"` | Add an item to a project column (prompts for column if not specified) |
 | `{project_id} add {column_id} "item name"` | Add an item directly to a specific column |
+| `{project_id} comment "text"` *(+ "leave a note on project {id}", "comment on project {id}")* | Add a comment to the project |
+| `{project_id} comments` *(+ "show comments on project {id}", "project discussion")* | List comments on the project |
+| `edit comment {comment_id} "text"` | Edit my comment |
+| `delete comment {comment_id}` | Delete my comment |
 
 ---
 
@@ -212,6 +216,94 @@ Added to {column_name} ({column_id}):
 
 ---
 
+## Flow: Add Comment to a Project
+
+**Trigger**: `{project_id} comment "text"`
+
+This uses the project's own comment endpoint (`/projects/{id}/comments`) — the same underlying comment as `/items/{id}/comments` (a project is an Item of type TodoList), just gated with a project-specific "not found" message. For a comment on one of the project's individual to-dos rather than the project itself, use `/rkit:board` or `/rkit:level10`/`/rkit:weekly` against that to-do's own ID.
+
+### Step 1: Parse and validate
+
+Extract the project ID and comment text. If text is empty → "Comment text cannot be empty."
+
+### Step 2: Confirm and execute
+
+> Add comment to project **{project_name}** (ID: {project_id}):
+> "{text}"
+>
+> Proceed?
+
+Wait for confirmation. Then:
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" POST "/projects/PROJECT_ID/comments" '{"body": "COMMENT_TEXT"}')
+echo "$RESPONSE"
+```
+
+Escape any double quotes in COMMENT_TEXT.
+
+### Step 3: Handle response
+
+- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to **{project_name}**: "{body}"`
+- **Status 404** → "Project {project_id} not found."
+- **Status 422** → "Comment text cannot be empty."
+- **Error** → use Error Handling from List Projects flow
+
+---
+
+## Flow: List Comments on a Project
+
+**Trigger**: `{project_id} comments`
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" GET "/projects/PROJECT_ID/comments")
+echo "$RESPONSE"
+```
+
+- **Status 200**: Extract `body.data` array. If empty → "No comments on project {project_id}." If present, display:
+
+  ```
+  ## Comments — {project_name} ({project_id})
+
+  | ID | Author | Comment | Time |
+  |----|--------|---------|------|
+  | 9001 | Sarah Lee | Vendor confirmed the timeline. | 2026-03-07 14:02 |
+  ```
+
+  Append `(edited)` after the time when `updated_at` is later than `created_at`.
+- **Status 404** → "Project {project_id} not found."
+- **Error** → use Error Handling from List Projects flow
+
+---
+
+## Flow: Edit / Delete My Comment
+
+**Trigger**: `edit comment {comment_id} "text"` or `delete comment {comment_id}`
+
+**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`, then:
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** updated." · **403** → "You can only edit your own comments." · **404** → "Comment {comment_id} not found." · **422** → "Comment text cannot be empty."
+
+**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then:
+
+```bash
+API_SH="<api.sh path>"
+RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
+echo "$RESPONSE"
+```
+
+- **Status 200**: "Comment **{comment_id}** deleted." · **403** → "You can only delete your own comments (a team admin can also delete any comment on this project)." · **404** → "Comment {comment_id} not found."
+
+---
+
 ## Project Status Values (from live API)
 
 Projects use the same status field as items:
@@ -234,6 +326,9 @@ Projects use the same status field as items:
 - **No columns**: "No columns found for project {project_id}." (project has no direct children)
 - **Project not found (404)**: "Project {project_id} not found."
 - **Ambiguous project_id vs team_id**: If the first arg is a number followed by `columns` or `add`, treat it as a project ID. Otherwise treat it as a team ID.
+- **Empty comment text**: "Comment text cannot be empty."
+- **Comment not found (404)**: "Comment {id} not found."
+- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
 
 ## References
 
