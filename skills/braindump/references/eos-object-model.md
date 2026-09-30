@@ -4,14 +4,14 @@
 
 ### Action Item
 - **Definition**: General task
-- **Default destination**: Personal Prioritizer (Day Plan)
+- **Default destination**: Personal Planner (Day Plan)
 - **Priority signal**: Base level
 - **Due date**: Ask if not clear from context
 
 ### To-do
 - **Definition**: Action item committed in an L10 or 1:1 meeting
 - **Key differentiator**: 7-day due date from meeting
-- **Destinations**: L10 meeting, 1:1 meeting, Personal Prioritizer, Project (can exist in multiple)
+- **Destinations**: L10 meeting, 1:1 meeting, Personal Planner, Project (can exist in multiple)
 - **Priority signal**: Higher (committed)
 - **Due date**: Must be 7 days from creation when associated with L10 or 1:1
 
@@ -42,7 +42,7 @@ Items can exist in multiple contexts simultaneously.
 
 | Context | Description | Due Date Rule |
 |---------|-------------|---------------|
-| Personal Prioritizer | Default destination; also called "Day Plan" | Flexible |
+| Personal Planner | Default destination; also called "Day Plan" or "Prioritizer" | Flexible |
 | L10 Meeting | Weekly tactical meeting (Level 10) | 7 days |
 | 1:1 Meeting | One-on-one meeting | 7 days (default, can override) |
 | Project | Container for related action items | Inherited from project timeline |

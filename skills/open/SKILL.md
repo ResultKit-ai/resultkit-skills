@@ -128,7 +128,7 @@ A goal, rock, or milestone opens in a drawer that finds the ID inside the **curr
 
 ### open_personal
 
-`"$RK_OPEN" today` (the day plan / prioritizer) · `"$RK_OPEN" home` · `"$RK_OPEN" url /notifications` · `"$RK_OPEN" url /customize` (profile and API token).
+`"$RK_OPEN" today` (the day plan / Personal Planner) · `"$RK_OPEN" home` · `"$RK_OPEN" url /notifications` · `"$RK_OPEN" url /customize` (profile and API token).
 
 ### open_url
 

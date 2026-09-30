@@ -3,7 +3,7 @@ name: rm-concepts
 description: >
   ResultMaps product and domain concept reference. Use this skill whenever someone asks what ResultMaps is,
   what a business concept means in the product (rock, objective, WIG, measurable, scorecard, seat, vision,
-  mission, result area, key result, milestone, item, issue, to-do, day plan, assignment, group, team, account),
+  mission, result area, key result, milestone, item, issue, to-do, day plan, personal planner, assignment, group, team, account),
   how management frameworks differ (EOS, OKR, 4DX, V2MOM, SRT, SVEP), what terminology maps to what,
   or needs general orientation on the product domain. Also use when someone says "explain concept",
   "domain overview", "product overview", "what does X mean", "EOS vs OKR", or "framework terminology".
@@ -108,7 +108,7 @@ Actionable work — a task, to-do, or issue. Items form their own hierarchy (par
 Items aren't all equal. ResultMaps distinguishes several types, each carrying a different priority signal:
 
 ### Action Item
-A general task. The base unit of work. Default destination is the personal prioritizer (day plan). Flexible due dates.
+A general task. The base unit of work. Default destination is the Personal Planner (day plan). Flexible due dates.
 
 ### To-Do
 An action item that was *committed* in a meeting (L10 or 1:1). The act of committing elevates its priority. When created in a meeting context, it gets a 7-day due date from the meeting date.
@@ -141,7 +141,7 @@ Items can exist in multiple contexts simultaneously:
 
 | Context | Description | Due Date Rule |
 |---------|-------------|---------------|
-| Personal Prioritizer | Default home for all items; also called "Day Plan" | Flexible |
+| Personal Planner | Default home for all items; also called "Day Plan" or "Prioritizer" | Flexible |
 | L10 Meeting | Weekly tactical meeting (EOS Level 10) | 7 days from meeting |
 | 1:1 Meeting | One-on-one meeting | 7 days (default, can override) |
 | Project | Container for related action items | Inherited from project timeline |
@@ -150,8 +150,11 @@ Items can exist in multiple contexts simultaneously:
 
 ## Planning and Execution
 
+### Personal Planner
+The My Work page's first tab (older text may call it "My Planner" or "Prioritizer" — same surface). Day plan, Sequencer, Timeline, Day-Week, Quadrants, Custom, and Rocks are views inside it. Personal Planner is the list you build for yourself, what you have decided to do. Assigned to Me, Timeline and the Compass dock are inputs to that decision: what other people have put on you, what is coming due, and what you can pull from your context. You read the inputs and pull what you commit to onto your Personal Planner. Inputs are not limited to those three.
+
 ### Day Plan
-A user's daily work plan. Contains day plan actions — the specific items they intend to work on that day, with estimated time, reported time, completion status, and the ability to defer to another date.
+A user's daily work plan — the Day Plan view inside Personal Planner. Contains day plan actions — the specific items they intend to work on that day, with estimated time, reported time, completion status, and the ability to defer to another date.
 
 ### Week Plan
 A broader view — what a user plans to accomplish during the week.

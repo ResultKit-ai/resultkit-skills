@@ -1,6 +1,6 @@
 ---
 name: rkit:today
-description: View and manage today's day plan — the daily prioritizer. Interprets user intent and routes to the correct API action. Use this skill when users mention their day plan, daily tasks, prioritizer, today's items, checking off tasks, adding tasks to today, or want to manage what they're working on today or any specific date.
+description: View and manage today's day plan — the committed list on your Personal Planner (also called the Prioritizer), what you've decided to do. Interprets user intent and routes to the correct API action. Use this skill when users mention their day plan, daily tasks, personal planner, prioritizer, today's items, checking off tasks, adding tasks to today, or want to manage what they're working on today or any specific date.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Grep, AskUserQuestion
 ---

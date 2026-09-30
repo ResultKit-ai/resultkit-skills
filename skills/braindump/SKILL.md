@@ -39,7 +39,7 @@ See `references/eos-object-model.md` for full definitions. Summary:
 
 | Type | Definition | Default Destination |
 |------|------------|---------------------|
-| Action Item | General task | Personal Prioritizer |
+| Action Item | General task | Personal Planner |
 | To-do | Action item on L10 or 1:1 (7-day due) | L10/1:1 + others |
 | Issue | Blocked/stuck item or identified problem | Same as above |
 | Project | Collection of action items | (container) |
@@ -56,7 +56,7 @@ Always output a markdown table with these columns:
 | Description | Verbatim source text in quotes, prefaced with source type (e.g., "from pasted email:", "from dictation:") |
 | Organize as a | To-do, Action Item, Issue, Project |
 | Status | Done, Not Done |
-| Context | Destination(s): Personal Prioritizer, L10, 1:1, Project name |
+| Context | Destination(s): Personal Planner, L10, 1:1, Project name |
 | Owner | Person responsible |
 | Created at | Date (YYYY-MM-DD) |
 | Due by | Date (YYYY-MM-DD) |
@@ -82,7 +82,7 @@ Apply these defaults to minimize questions:
 | Owner not stated | Person who surfaced the item |
 | Created at not clear | Today's date |
 | Issues | Auto-generate corresponding To-do |
-| No context specified | Personal Prioritizer |
+| No context specified | Personal Planner |
 | "Me" as owner | Acceptable; use as-is |
 
 ## When to Ask
@@ -120,7 +120,7 @@ Batch questions together. Allow user to answer multiple questions in one respons
 Example questions:
 - "Owner: These appear to be Gus's items—confirm? Exception: item X mentions 'Robert'—is Robert the owner?"
 - "Completed items: Include SUP-909 and SUP-347 as Done, or filter out?"
-- "Context: Do any of these belong to an L10 or 1:1, or all Personal Prioritizer?"
+- "Context: Do any of these belong to an L10 or 1:1, or all Personal Planner?"
 
 ## References
 

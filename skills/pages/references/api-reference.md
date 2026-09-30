@@ -2242,8 +2242,6 @@ Delete responses vary by resource: strategy objects (goals, rocks, milestones) r
 | show reactions, reaction count, did I react, high-five count | Result Feed Reaction (read) | `GET /result-feed/{date}/reactions` |
 | comments on check-in, check-in comments | Result Feed Comments | `/result-feed/{date}/comments` |
 | unshare check-in, retract share, stop sharing check-in | Retract Result Feed Share | `DELETE /result-feed/{date}/share` |
-| share to slack, push to slack | Push Result Feed to Slack | `/result-feed/{date}/push-to-slack` |
-| share to discord, push to discord | Push Result Feed to Discord | `/result-feed/{date}/push-to-discord` |
 | section notes, done notes, add notes, review notes | Result Feed Section Metadata | `PUT /result-feed/{date}/{section}` |
 | upload file to check-in, attach file, upload attachment | Result Feed File Upload | `POST /result-feed/{date}/attachments` |
 | weekly, team weekly, weekly board, Level 10, L10 (EOS) | Team Items (weekly board; called "Level 10" for EOS teams) | `/teams/{id}/items` |

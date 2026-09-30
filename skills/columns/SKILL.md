@@ -1,6 +1,6 @@
 ---
 name: rkit:columns
-description: Day Plan Columns — read the custom columns on the Custom tab of your personal Prioritizer — which columns you have, what's open in each, and what you've completed in them. Use this skill whenever someone asks about their day plan columns, custom columns, planner columns, or planner buckets — "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns", "what's done in my columns", "what have I completed in my columns". Follow-ups inside an already-open columns conversation ("the 3 from each", "the complete list", "the rest of {column}", "3 months", "6 months") are routed by this skill's Tool Routing Table once it is loaded — they are deliberately not listed here, because on their own they say nothing about columns. Read-only — it never adds, completes, moves, renames, or deletes anything.
+description: Day Plan Columns — read the custom columns on the Custom tab of your Personal Planner (also called the Prioritizer) — which columns you have, what's open in each, and what you've completed in them. Use this skill whenever someone asks about their day plan columns, custom columns, planner columns, or planner buckets — "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns", "what's done in my columns", "what have I completed in my columns". Follow-ups inside an already-open columns conversation ("the 3 from each", "the complete list", "the rest of {column}", "3 months", "6 months") are routed by this skill's Tool Routing Table once it is loaded — they are deliberately not listed here, because on their own they say nothing about columns. Read-only — it never adds, completes, moves, renames, or deletes anything.
 # NOTE: this skill must stay model-invocable — the locked BDD (https://resultkit.ai/pages/55) has the user invoke it by typing a plain sentence. Never add `disable-model-invocation` here.
 user-invocable: true
 allowed-tools: Bash(*/skills/columns/scripts/api.sh GET *), Bash(jq *), Read, Glob, Grep
@@ -14,7 +14,7 @@ allowed-tools: Bash(*/skills/columns/scripts/api.sh GET *), Bash(jq *), Read, Gl
 
 # rkit:columns
 
-Reads the personal planner's day-plan custom columns. **Read-only.**
+Reads the Personal Planner's day-plan custom columns. **Read-only.**
 
 ## Current State
 

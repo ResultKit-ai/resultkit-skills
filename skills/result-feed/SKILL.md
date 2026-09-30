@@ -1,6 +1,6 @@
 ---
 name: rkit:result-feed
-description: View and interact with team daily check-ins (result feeds). Shows what teammates got done, what's next, and what's blocking them. Supports reactions (high-five), comments, section notes, push to Slack/Discord, and team member detail views. Use this skill when users want to see team updates, daily check-ins, team progress, react to check-ins, comment, share to Slack/Discord, or manage section notes.
+description: View and interact with team daily check-ins (result feeds). Shows what teammates got done, what's next, and what's blocking them. Supports reactions (high-five), comments, section notes, and team member detail views. Use this skill when users want to see team updates, daily check-ins, team progress, react to check-ins, comment, or manage section notes.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Grep, AskUserQuestion
 ---
@@ -39,8 +39,6 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 | "show comments", "read comments", "comments on check-in", "comments on {date}" | List comments on a check-in | `list_comments` |
 | "upload file", "attach file", "upload attachment" | Upload a file attachment to a check-in | `upload_attachment` |
 | "comment on check-in", "add comment", "reply to {user}", "leave a comment" | Add a comment to a check-in | `add_comment` |
-| "share to slack", "push to slack", "send to slack", "share check-in to slack" | Push check-in to Slack | `push_to_slack` |
-| "share to discord", "push to discord", "send to discord", "share check-in to discord" | Push check-in to Discord | `push_to_discord` |
 | "set team context", "switch team", "share to team {id}", "set group context" | Set active group context | `set_group_context` |
 
 ---
@@ -336,67 +334,6 @@ Escape any double quotes in COMMENT_TEXT.
 
 ---
 
-### push_to_slack
-
-Push a result-feed check-in to the team's Slack webhook.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-- **team_id**: Use Team ID Resolution.
-- **exclude_item_ids**: Extract IDs if provided (optional).
-
-#### Step 2: Check webhook availability
-
-```bash
-API_SH="<api.sh path>"
-TEAM_RESPONSE=$("$API_SH" GET "/teams/TEAM_ID")
-echo "$TEAM_RESPONSE"
-```
-
-Extract `body.data.has_slack_webhook`. If false:
-> This team has no Slack webhook configured. Ask a team admin to set one up.
-
-Stop — do not attempt the push.
-
-Also display `has_discord_webhook` status for reference:
-> Slack webhook: {yes/no} | Discord webhook: {yes/no}
-
-#### Step 3: Confirm
-
-Display:
-> Push {date}'s check-in to Slack for team {team_id}?
-
-Wait for confirmation.
-
-#### Step 4: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/result-feed/DATE/push-to-slack" '{"group_context_id":TEAM_ID,"exclude_item_ids":[IDS]}')
-echo "$RESPONSE"
-```
-
-#### Step 5: Handle response
-
-- **Status 200**: "Check-in pushed to Slack."
-- **Status 422**: "No Slack webhook configured for this team."
-- **Status 502**: "Slack webhook delivery failed. The webhook URL may be invalid."
-- **Status 403**: "Not authorized — you are not a member of this team."
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### push_to_discord
-
-Push a result-feed check-in to the team's Discord webhook. Same flow as `push_to_slack` but:
-- Check `has_discord_webhook` instead of `has_slack_webhook`.
-- Call `POST /result-feed/DATE/push-to-discord` instead of `push-to-slack`.
-- Use `group_context_id` in the request body (same as push_to_slack).
-- Replace "Slack" with "Discord" in all messages.
-
----
-
 ### set_group_context
 
 Set the calling user's active group context (which team to share check-ins to).
@@ -562,7 +499,6 @@ Replace `FILE_PATH` with the actual local path and `DATE` with the resolved date
 | `status: 403` | "Not authorized — you are not a member of this team." |
 | `status: 404` | "Not found. Resource may not exist." |
 | `status: 422` | Show validation error from response body. |
-| `status: 502` | "Webhook delivery failed. The webhook URL may be invalid." |
 | Other non-200 | Show status code and error message. |
 
 ### Edge Cases
@@ -571,7 +507,6 @@ Replace `FILE_PATH` with the actual local path and `DATE` with the resolved date
 - **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No default_team_id and no --team**: Prompt user for team ID.
 - **Empty feed list**: "No shared check-ins found for this team."
-- **No webhook configured**: "No Slack/Discord webhook configured for this team. Ask an admin to set one up."
 - **Empty comment body**: Show 422 validation error.
 
 ## References

@@ -12,7 +12,7 @@ This reference covers only the three reads `rkit:columns` uses. The skill is **r
 
 ## Call order (binding)
 
-The Custom tab of the Prioritizer issues exactly two GETs, in this order, and `rkit:columns` must issue the same two in the same order:
+The Custom tab of the Personal Planner issues exactly two GETs, in this order, and `rkit:columns` must issue the same two in the same order:
 
 1. `GET /api/v2/day-plans/today`
 2. `GET /api/v2/day-plan-columns`
@@ -72,7 +72,7 @@ Live check, 2026-08-03: today's plan held 20 open items; the five columns held 1
 
 ## Day Plan Columns (Custom Columns / Personal Planner Buckets)
 
-Personal Planner custom column lanes — the **Custom tab** of the Prioritizer (`/prioritizer`, Personal context). All endpoints require auth. Items embedded in column responses are automatically scoped to the caller's **today** DayPlan — no filter param needed.
+Personal Planner custom column lanes — the **Custom tab** of the Personal Planner (`/prioritizer`, Personal context). All endpoints require auth. Items embedded in column responses are automatically scoped to the caller's **today** DayPlan — no filter param needed.
 
 `rkit:columns` uses **only the GET**, and only **after** `GET /day-plans/today` — see "Call order (binding)" above. The other verbs on this resource (POST, PATCH, DELETE, reposition, drop-action) exist but are out of scope for this skill — see the sibling [`api-reference.md`](api-reference.md) if you need them. That sibling is this skill's copy of the repo-root master; `/day-plan-completions` is **not** in the master yet, so it is documented here and only here until the master gains it.
 
