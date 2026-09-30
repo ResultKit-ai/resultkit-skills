@@ -98,12 +98,17 @@ CURL_ARGS=(
   -X "$METHOD"
 )
 
+# The body reaches curl on stdin (`--data-binary @-`), never as an argument. An
+# argument to curl is an argument to a native process, and on Windows a whole
+# command line is capped at 32 KB: `-d "$BODY"` with a large ResultKit page or
+# item description failed there before curl started, and came back as
+# CURL_FAILED. `--data-binary @-` sends the same bytes `-d "<string>"` did.
 if [ -n "$BODY" ]; then
-  CURL_ARGS+=(-d "$BODY")
+  CURL_ARGS+=(--data-binary @-)
 fi
 
 # --- Execute request ---
-RESPONSE=$(curl "${CURL_ARGS[@]}" "$URL" 2>/dev/null) || {
+RESPONSE=$(printf '%s' "$BODY" | curl "${CURL_ARGS[@]}" "$URL" 2>/dev/null) || {
   echo '{"status":0,"error":"CURL_FAILED"}'
   exit 0
 }
