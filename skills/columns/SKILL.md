@@ -41,7 +41,7 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 | "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns" | Summary of columns with open counts | `summary` |
 | "the 3 from each", "the 3 from each column", "3 from each", "show me the 3" — **only** as a reply to the summary offer in this session | Drill in — first 3 open per column | `three_from_each` |
 | "the complete list", "the complete list from each", "the full list", "everything", "all of them", "the complete list from every column" — **only** as a reply to the summary offer in this session | Drill in — every open item per column | `complete_list` |
-| "what's done in my columns", "what's done in my columns?", "what have I completed", "what did I finish", "show me what's done", "completed in my columns" | Completions, last 30 days | `whats_done` |
+| "what's done in my columns", "what's done in my columns?", "what have I completed", "what did I finish", "show me what's done", "completed in my columns" | Completions, today | `whats_done` |
 | "3 months", "the last 3 months", "6 months", "the past 6 months", "extend it", "go back further" — **only** as a reply to a done offer | Completions, extended window | `extend_done` |
 | "the rest of {column}" — **only** as a reply to a truncated `three_from_each` | Not locked by any scenario | `rest_of_column` |
 
@@ -89,7 +89,7 @@ Every flow starts here. **Two GETs, in this exact order.** This is the order the
 
 **Issue them as two separate Bash calls, each a bare invocation** — exactly as written above. Do not chain them with `&&`, `;`, or a pipe; do not assign the path to a shell variable; do not wrap the call in `$( )`; do not append `echo`. The skill's `allowed-tools` permits only the bare `GET` form, and anything else is denied.
 
-Read today's items from `body.data.items` (step 1) and the columns from `body.data` (step 2). Then compute, once:
+Read today's items from `body.data.items` and today's date (`YYYY-MM-DD`, the caller's timezone) from `body.data.date` (step 1), and the columns from `body.data` (step 2). Then compute, once:
 
 - **Open items in a column** = that column's `items` where `completed == false`. Completed items are dropped here, once, and are invisible to every open-item flow below.
 - **Not categorized** = today's items where `completed == false` **and** whose `id` does not appear in any column's `items[]`. It is a **set difference the caller computes** — no endpoint returns this bucket, and the Custom tab builds it the same way.
@@ -329,7 +329,7 @@ The closing line offers **actions**, never more listing. A complete-list reply n
 
 ### whats_done
 
-Run the shared step (the columns response supplies board order and the empty-columns check), then fetch the completions for the default window — **no `months` param**. A third bare Bash call:
+Run the shared step (the columns response supplies board order and the empty-columns check), then fetch the completions for the default window — **no range params**, which the API answers as **today** in the caller's own timezone (there is no hidden multi-day window). A third bare Bash call:
 
 ```bash
 "<api.sh path>" GET "/day-plan-completions"
@@ -343,7 +343,7 @@ Read completions from `body.data`. Then:
 - With no `column: null` completions in the window the Not categorized group does not render at all — no `— 0 completed` header — and the reply is byte-identical to the locked template.
 
 ```
-Done in your day plan columns — TOTAL completed items in the last 30 days
+Done in your day plan columns — TOTAL completed items today
 
 Not categorized — N completed
 - ITEM
@@ -360,7 +360,7 @@ Would you like me to extend my search to the last 3 or 6 months?
 **Locked example** (Scenario 4):
 
 ```
-Done in your day plan columns — 2 completed items in the last 30 days
+Done in your day plan columns — 2 completed items today
 
 Deep Work — 1 completed
 - Review Alya's ops intake spec
@@ -381,10 +381,12 @@ Only from a done offer. Re-fetch with the window the user named:
 
 | The user says | Request | Window words in the header | Closing line |
 |---|---|---|---|
-| "3 months" | `GET /day-plan-completions?months=3` | `in the last 3 months` | `Would you like me to extend my search to the past 6 months?` |
-| "6 months" † | `GET /day-plan-completions?months=6` | `in the last 6 months` | *(none — the ladder ends)* |
+| "3 months" | `GET /day-plan-completions?start=<START>&end=<END>` with `START` = `END` minus 3 months | `in the last 3 months` | `Would you like me to extend my search to the past 6 months?` |
+| "6 months" † | `GET /day-plan-completions?start=<START>&end=<END>` with `START` = `END` minus 6 months | `in the last 6 months` | *(none — the ladder ends)* |
 
-† The 6-month row is a **number-substitution inference, not locked**. Scenario 4b locks `months=3` only — the header "in the last 3 months" and the closing "…the past 6 months?". The 6-month reply substitutes `6` into that same locked header phrase and closes with nothing, since no further extension is offered. Substitution only, never new wording.
+`END` is today's date in the caller's timezone — take it from `body.data.date` from the `GET /day-plans/today` response the shared step already made, never from the machine clock. Both bounds are `YYYY-MM-DD` and inclusive. Compute `START` with `date -d "<END> -3 months" +%F` (`-6 months` for the 6-month row). **Never send `months`** — it is deprecated, and the API ignores it whenever `start`/`end` are present.
+
+† The 6-month row is a **number-substitution inference, not locked**. Scenario 4b locks the 3-month window only — the header "in the last 3 months" and the closing "…the past 6 months?". The 6-month reply substitutes `6` into that same locked header phrase and closes with nothing, since no further extension is offered. Substitution only, never new wording.
 
 Same grouping, same `Not categorized` handling for `column: null`, same board order as `whats_done`.
 
@@ -416,7 +418,7 @@ Waiting On — 1 completed
 Would you like me to extend my search to the past 6 months?
 ```
 
-Note the wording shift the spec locks: the 30-day reply offers "**the last** 3 or 6 months"; the 3-month reply offers "**the past** 6 months". Reproduce both exactly.
+Note the wording shift the spec locks: the default (today) reply offers "**the last** 3 or 6 months"; the 3-month reply offers "**the past** 6 months". Reproduce both exactly.
 
 ---
 
@@ -454,7 +456,7 @@ These hold in every reply. A reply that breaks one is wrong even if it looks rig
 6. **The summary always closes** `Want the 3 from each column (names/descriptions), or the complete list from each?`
 7. **Done replies show only completed items.** No open item is named or counted. No "no completed items" chunk exists. No check-off/add offer.
 8. **Done replies never say history is gone.** Never state or imply that completed history is cleared, deleted, expired, or unavailable. An empty or short window means the search window, not the record.
-9. **Months language is exact.** Default window: "in the last 30 days", closing "Would you like me to extend my search to the last 3 or 6 months?". After extending: "in the last 3 months", closing "Would you like me to extend my search to the past 6 months?".
+9. **Months language is exact.** Default window: "today", closing "Would you like me to extend my search to the last 3 or 6 months?". After extending: "in the last 3 months", closing "Would you like me to extend my search to the past 6 months?".
 10. **The no-columns fallback lists nothing.** One sentence, verbatim, and no day-plan items.
 11. **Names render verbatim.** Column names and item names exactly as the API returns them — no trimming, re-casing, re-wrapping, truncating, or tidying.
 12. **Nothing is written.** The only calls this skill ever makes are `GET /day-plans/today`, `GET /day-plan-columns`, and `GET /day-plan-completions`. No other endpoint and no other verb, ever.

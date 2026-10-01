@@ -145,23 +145,33 @@ Binding spec: `docs/design-intent/day-plan-completions/day-plan-completions-spec
 
 | Method | Path | Description | User Phrases | Web URL |
 |--------|------|-------------|--------------|---------|
-| GET | `/day-plan-completions` | Historical day-plan completions for the caller, most recent first. Params (all optional): `months`, `column`, `column_id`. Default window is the last 30 days. Returns `{ data: DayPlanCompletion[] }`. | "what's done in my columns", "what have I completed", "what did I finish", "3 months", "6 months" | — |
+| GET | `/day-plan-completions` | Historical day-plan completions for the caller, most recent first. Params (all optional): `start`, `end`, `months` (deprecated), `column`, `column_id`, `team_id`, `source`, `label_ids`, `match`, `owner_id`. **Default window is today** in the caller's timezone. Returns `{ data: DayPlanCompletion[] }`. | "what's done in my columns", "what have I completed", "what did I finish", "3 months", "6 months" | — |
 
 ### Query parameters
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `months` | positive integer | Window length in **calendar months**. **Omit for the last 30 days** (the default window). A non-positive or non-numeric value is treated as not supplied. |
+| `start` | `YYYY-MM-DD` | First day of the window, inclusive, in the caller's timezone. History is asked for with `start`/`end`. |
+| `end` | `YYYY-MM-DD` | Last day of the window, inclusive, in the caller's timezone. |
+| `months` | positive integer | **Deprecated.** Ignored whenever `start`/`end` are present (verified live 2026-09-30). This skill never sends it. |
 | `column` | string | Only completions whose item **currently sits** in this column, matched by name, case-insensitive. Optional. |
 | `column_id` | positive integer | The same filter by column id. **Wins over `column` when both are sent.** Optional. |
+| `team_id` | `all` or a team id | Default hides muted teams; `all` includes them. Not used by this skill. |
+| `source` | comma-separated list | `all`, `level10_todos`, `level10_issues`, `one_on_one_todos`, `one_on_one_issues`; anything else is a `400`. Not used by this skill. |
+| `label_ids` + `match` | ids; `any` \| `all` | Narrow by label; `match` defaults to `any`. Not used by this skill. |
+| `owner_id` | user id | Narrow by the completed item's current owner. Not used by this skill. |
+
+With **no range**, the read answers for **today** in the caller's own timezone — there is no hidden multi-day window. A completion is an item the caller owns that was marked done anywhere (item sheet, Level 10, 1:1, project), not only a day-plan check-off. Source of truth: ResultKit page 1117, mirrored at `docs/design-intent/work-done-read-bdd.md`.
 
 **Scenario → parameter mapping (this is the whole mapping — do not invent others):**
 
 | The user's window | Request |
 |---|---|
-| "the last 30 days" (default, first done reply) | `GET /day-plan-completions` — **no `months` param** |
-| "3 months" | `GET /day-plan-completions?months=3` |
-| "6 months" | `GET /day-plan-completions?months=6` |
+| "today" (default, first done reply) | `GET /day-plan-completions` — **no range params** |
+| "3 months" | `GET /day-plan-completions?start=<END minus 3 months>&end=<END>` |
+| "6 months" | `GET /day-plan-completions?start=<END minus 6 months>&end=<END>` |
+
+`END` is `body.data.date` from `GET /day-plans/today` (caller's timezone); both bounds inclusive.
 
 **No fan-out — but two GETs, in a fixed order.** The whole skill is `/day-plans/today` then `/day-plan-columns`, plus, on a done ask, **one** `/day-plan-completions`. (An earlier version of this reference claimed "one GET" — that was wrong, and it is what produced the empty-columns defect.) That single completions request serves the entire window at every window size. Never issue one call per date, per column, or per month to assemble an answer. The column filter is optional and this skill does not use it — one unfiltered request returns every column's completions, already carrying the column each item sits in.
 
@@ -184,7 +194,7 @@ Ordering: **most recent first** by `completed_on`. The array is already sorted �
 
 A completion is per-day: the same item finished on two different days is two entries.
 
-`column: null` is common in live data — 3 of the 5 completions in the default 30-day window on a real account on 2026-08-03 carried it. They render under a **`Not categorized`** group, first, above every column, and they are counted in the total. **Ruled by Scott 2026-08-03 (UI parity), not page-55-locked** — see case 8 under "Cases the locked spec does not cover".
+`column: null` is common in live data — 3 of the 5 completions in the then-default window on a real account on 2026-08-03 carried it. They render under a **`Not categorized`** group, first, above every column, and they are counted in the total. **Ruled by Scott 2026-08-03 (UI parity), not page-55-locked** — see case 8 under "Cases the locked spec does not cover".
 
 ### Sample (shape only, live 2026-08-02)
 
@@ -218,13 +228,13 @@ A completion is per-day: the same item finished on two different days is two ent
 
 The 8 locked scenarios at https://resultkit.ai/pages/55 are law. These situations fall outside them. They are recorded here, not silently absorbed into the templates — if one comes up in real use, it is a spec question, not a rendering decision.
 
-1. **Singular counts in the header lines.** The locked headers read "— 6 open items total" and "— 2 completed items in the last 30 days". No scenario shows a total of 1. Substitute the number and change nothing else; do not re-word to "item".
+1. **Singular counts in the header lines.** The locked headers read "— 6 open items total" and "— 2 completed items today". No scenario shows a total of 1. Substitute the number and change nothing else; do not re-word to "item".
 2. **More than one column truncated in the "3 from each" reply.** ~~Open question.~~ **RULED by Scott 2026-08-03 — no longer an uncovered case.** Scenario 2b locks the closing line for **exactly one** truncated group only — "Want the rest of Deep Work, or the complete list from every column?" — and that single-group form stays exactly as locked. When two or more groups are truncated in the same reply (Not categorized counts as a group here, same as everywhere else), the closing line names every truncated group in display (board) order, joined with "and": `Want the rest of {A} and {B}, or the complete list from every column?` for exactly two; `Want the rest of {A}, {B}, and {C}, or the complete list from every column?` for three or more. Not page-55-locked — no locked fixture truncates two groups at once, so no locked template is affected by this ruling.
 3. **"the rest of &lt;column&gt;".** Scenario 2b offers it; no scenario locks the reply. Nearest locked behavior is the complete-list reply (Scenario 3/3b template).
 4. **The done ask when the user has no custom columns at all.** Scenario 5 locks the fallback for "show me my columns and what's in each". Reuse that same locked sentence — there are no columns to report on either way. No new wording.
 5. **A done window that returns nothing.** No scenario shows an empty done reply. Whatever is shown, Scenario 4's invariant still binds: never state or imply that completed history is gone, cleared, or deleted.
 6. **Every column empty of open items.** No scenario shows a summary where no column has an open item. The templates still substitute mechanically — a `0` total, an empty top list, every column under "These columns have no open items:", and the locked drill-in offer that now has nothing to drill into.
-7. **The 6-month header.** Scenario 4b locks "in the last 3 months" for `months=3`. `months=6` substitutes the number into that same phrase — "in the last 6 months" — and closes with nothing, since no further extension is offered. Substitution only, no new wording.
-8. **A completion whose `column` is `null`.** ~~Open question.~~ **RULED by Scott 2026-08-03 — no longer an uncovered case.** The live endpoint returns them, and often — 3 of 5 in the real 30-day window on 2026-08-03. They render under a **`Not categorized`** group, placed **first**, above every column, and they **are counted in the total**. Nothing is dropped. This is the same UI-parity ruling that put the Not categorized lane at the front of the open-item flows; it mirrors the Custom tab, where the uncategorized lane is leftmost. It replaces the previous interim "drop it" rule, which made the reply understate what the user had finished. Not page-55-locked — the locked fixtures carry no `column: null` completion, so no locked template is affected, and with none in the window the reply is byte-identical to the locked one.
+7. **The 6-month header.** Scenario 4b locks "in the last 3 months" for the 3-month window. The 6-month window substitutes the number into that same phrase — "in the last 6 months" — and closes with nothing, since no further extension is offered. Substitution only, no new wording.
+8. **A completion whose `column` is `null`.** ~~Open question.~~ **RULED by Scott 2026-08-03 — no longer an uncovered case.** The live endpoint returns them, and often — 3 of 5 in the live data on 2026-08-03. They render under a **`Not categorized`** group, placed **first**, above every column, and they **are counted in the total**. Nothing is dropped. This is the same UI-parity ruling that put the Not categorized lane at the front of the open-item flows; it mirrors the Custom tab, where the uncategorized lane is leftmost. It replaces the previous interim "drop it" rule, which made the reply understate what the user had finished. Not page-55-locked — the locked fixtures carry no `column: null` completion, so no locked template is affected, and with none in the window the reply is byte-identical to the locked one.
 9. **The user takes up the "create" offer after Scenario 5.** The locked no-columns sentence ends by offering to create columns, but nothing is specced past that point and **no rkit skill owns `POST /day-plan-columns`** — `rkit:columns` is read-only, and the create/rename/archive/reposition verbs documented in the sibling [`api-reference.md`](api-reference.md) have no skill behind them. Which skill should own them, and what that reply reads like, is a spec question for Scott. **Interim behavior:** the request is uncovered — do not write, and do not improvise a create flow inside this skill.
 10. **An ambiguous follow-up to the summary.** The summary offers two paths ("the 3 from each" / "the complete list"); no scenario covers a reply that clearly answers the offer but picks neither cleanly. This skill never uses AskUserQuestion and no locked template supplies a clarifying question, so asking is not available. **Interim behavior:** route to the closest matching flow. A follow-up that stays genuinely unresolvable is an uncovered case, and what should happen then is a spec question for Scott.

@@ -100,7 +100,7 @@ If not set → go to Step 2.
 
 ### Step 2: Ask for API token
 
-> "Enter your ResultMaps API token (you can find it in your ResultMaps profile settings at https://app.resultmaps.com/customize):"
+> "Enter your ResultMaps API token (you can find it in your profile settings at https://resultkit.ai/customize):"
 
 Wait for user input.
 
