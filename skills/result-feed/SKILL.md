@@ -7,21 +7,21 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Gre
 
 # rkit:result-feed
 
-A single skill that handles all result-feed operations by interpreting user intent against a tool routing table.
+A single skill that handles all result-feed operations by interpreting user intent against a tool routing table. It drives the ResultKit connector's MCP tools; `scripts/api.sh` is used only for the jobs under **Fallback**. Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
 
 ## Current State
 
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/result-feed/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/result-feed/scripts/api.sh "$HOME/.claude/skills/rkit:result-feed/scripts/api.sh" "$HOME/.agents/skills/result-feed/scripts/api.sh" "$HOME/.gemini/skills/result-feed/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
+- Config (default team, Fallback): !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/result-feed/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/result-feed/scripts/api.sh "$HOME/.claude/skills/rkit:result-feed/scripts/api.sh" "$HOME/.agents/skills/result-feed/scripts/api.sh" "$HOME/.gemini/skills/result-feed/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 - Today: !`date +%Y-%m-%d`
 
 ## Rules
 
 - **Interpret first, act second.** Read the user's message. Match it against the Tool Routing Table below. Pick the best match. If ambiguous, ask.
-- **Confirm writes.** GET requests execute immediately. POST/PUT/PATCH/DELETE: summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
+- **Confirm writes.** Reads execute immediately. For writes, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
 - **Show IDs.** Always include item IDs in output.
 - **Concise output.** Tables and short summaries. No filler.
-- **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
+- **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
 
 ---
 
@@ -31,73 +31,36 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 | Triggers | Intent | Tool/Flow |
 |---|---|---|
-| "team check-ins", "team feed", "show check-ins", "what did the team do", "team updates", "team result feed", *(no args)* | View team's shared check-ins | `view_team_feeds` |
-| "show {user}'s check-in", "view {user}'s report", "team member report", "what did {user} do", "check-in for user {id}" | View a specific team member's report | `view_team_member_report` |
-| "add notes", "update notes", "set notes on done", "set notes on next", "set notes on blocked", "edit section notes", "attach files", "add attachment", "clear notes" | Update section notes/attachments | `update_section_meta` |
-| "high-five", "react", "high five {user}", "give kudos", "🙏", "toggle reaction" | React (high-five) to a check-in | `react_to_report` |
-| "show reactions", "reaction count", "did I react", "high-five count", "how many reactions" | View reaction state without toggling | `view_reactions` |
-| "show comments", "read comments", "comments on check-in", "comments on {date}" | List comments on a check-in | `list_comments` |
-| "upload file", "attach file", "upload attachment" | Upload a file attachment to a check-in | `upload_attachment` |
-| "comment on check-in", "add comment", "reply to {user}", "leave a comment" | Add a comment to a check-in | `add_comment` |
-| "set team context", "switch team", "share to team {id}", "set group context" | Set active group context | `set_group_context` |
+| "team check-ins", "team feed", "show check-ins", "what did the team do", "team updates", "team result feed", *(no args)* | View team's shared check-ins | `list_result_updates` |
+| "show {user}'s check-in", "view {user}'s report", "team member report", "what did {user} do", "check-in for user {id}" | View a specific team member's report | `get_result_update` |
+| "add notes", "update notes", "set notes on done", "set notes on next", "set notes on blocked", "edit section notes", "attach files", "add attachment", "clear notes" | Update section notes/attachments | `place_on_result_update` |
+| "high-five", "react", "high five {user}", "give kudos", "🙏", "toggle reaction" | React (high-five) to a check-in | Fallback: react |
+| "show reactions", "reaction count", "did I react", "high-five count", "how many reactions" | View reaction state without toggling | Fallback: view reactions |
+| "show comments", "read comments", "comments on check-in", "comments on {date}" | List comments on a check-in | `list_result_update_comments` |
+| "upload file", "attach file", "upload attachment" | Upload a file attachment to a check-in | `add_result_update_attachment` |
+| "comment on check-in", "add comment", "reply to {user}", "leave a comment" | Add a comment to a check-in | `add_result_update_comment` |
+| "set team context", "switch team", "share to team {id}", "set group context" | Set active group context | Fallback: team context |
 
 ---
 
 ## Common Resolution
 
-### Team ID Resolution
+**Team ID.** 1. `--team {id}` flag in args → that team. 2. `default_team_id` in config (Current State) → that team. 3. Neither → "No default team configured. Run `/rkit:setup` first." (or name a team: `list_teams` lists the teams and their IDs).
 
-1. **`--team {id}` flag** in args → use that team ID
-2. **`default_team_id` in config** → use that
-3. **Neither** → "No default team configured. Run `/rkit:setup` first."
+**Date.** Nothing or "today" → omit `date`: every own-check-in tool defaults to today in the user's timezone. "tomorrow", "yesterday", "2026-04-27", "Apr 27" → that day as `YYYY-MM-DD`, resolved from Today above. Exception: `get_result_update` with `team_id` takes only a literal `YYYY-MM-DD` — for today pass Today above, never "today".
 
-### Date Resolution
-
-| User says | Segment value |
-|---|---|
-| *(nothing)* / "today" | `today` |
-| "tomorrow" | tomorrow's date as `YYYY-MM-DD` |
-| "yesterday" | yesterday's date as `YYYY-MM-DD` |
-| "2026-04-27", "Apr 27" | `2026-04-27` |
-
-Use the current date from **Current State** to resolve relative dates.
+**The user's own ID.** The connector has no "who am I" read. When a tool needs the user's own numeric ID, use one already known in this conversation; else read it with `GET /users/me` through api.sh and take only `body.data.id` (that answer also carries `api_token`: never print it); if api.sh is unavailable, ask. Never guess. A teammate's ID is in `get_team`'s member list (`Name (user_id: N, role)`).
 
 ---
 
-## Tool/Flow
+## View team feeds: `list_result_updates`
 
-### view_team_feeds
+Resolve the team (Team ID). Call `list_result_updates`: `team_id`, `page?`, `per_page?`. It answers JSON `{page, per_page, total, result_updates}`, newest date first; each entry has `date`, `user` (`login`, `first_name`, `last_name`) and the sections `done`, `review`, `next`, `blocked`, each `{items, notes, attachments}`.
 
-### Step 1: Resolve team and build query
-
-Resolve team ID using Team ID Resolution. Build query params from args (page, per_page).
-
-### Step 2: Fetch team result feeds
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/result-feed?PARAMS")
-echo "$RESPONSE"
-```
-
-Replace `TEAM_ID` with actual value. `PARAMS` = any page/per_page values.
-
-### Step 3: Handle response
-
-Parse the JSON response from api.sh.
-
-**Error responses** (status 0 or non-200):
-- Handle per Error Handling table below.
-- `status: 404` → "Team not found or you are not a member."
-
-**Success (status 200)**:
-
-Extract `body.data` array and `body.meta` pagination.
-
-- **Empty array**: Display:
+- **Empty list**: Display:
   > No shared check-ins found for this team.
 
-- **Feeds present**: For each TeamResultFeed in data, display:
+- **Feeds present**: For each entry, display:
 
   ```
   ### {first_name} {last_name} (@{login}) — {date}
@@ -124,160 +87,30 @@ Extract `body.data` array and `body.meta` pagination.
   - Empty sections (no items, no notes, no attachments): show "None."
   - Section order: Done → Review → Next → Blocked.
 
-  After all feeds, show pagination summary:
+  After all feeds, show pagination summary (`total_pages` = `total` ÷ `per_page`, rounded up; the answer carries no `total_pages`):
   > Page {page}/{total_pages} — {total} check-ins
 
----
+## View a team member's report: `get_result_update` with `team_id`
 
-### view_team_member_report
+Resolve `team_id` (Team ID), `date` (Date; default today, as a literal `YYYY-MM-DD`) and `user_id`: an explicit ID from the args ("user 7", "user_id 7"); for "{user}'s check-in" by name, find the ID in `get_team`'s member list. Call `get_result_update` with `team_id`, `user_id`, `date`. It answers one flat report: `id`, `date`, `is_completed`, the four sections, plus `user`, `shared_team_id` and `shared_item_ids`. Display it with the feed's header and Section rendering rules — all four sections in order: Done, Review, Next, Blocked.
 
-View a specific team member's check-in for a given date.
+## Update section notes/attachments: `place_on_result_update`
 
-#### Step 1: Resolve parameters
+Sets notes and/or attachments on one section (`done`, `review`, `next`, `blocked`) of the user's own update. This is the only tool that sets them, and it always places an existing to-do or issue in that section: `section`, `item_id`, `date?`, `notes?` (plain text), `attachment_ids?` (IDs from `add_result_update_attachment`). Ask for the item ID when the user named none (`get_result_update` shows what is in the section). Cautions: placing re-applies the section's status to that item (done = marks it complete), and notes and attachments are replaced together — read the section first and resend whatever the user did not change. To clear notes, send the section's current `attachment_ids` and no `notes` (a call with neither does nothing).
 
-- **team_id**: Use Team ID Resolution.
-- **user_id**: Extract from args (e.g., "user 7", "user_id 7", "{user}'s check-in" → look up by name if needed, but prefer explicit ID).
-- **date**: Use Date Resolution. Default to `today`.
-
-#### Step 2: Fetch report
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/result-feed/DATE/USER_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Extract `body.data.report` and `body.data.is_quiet`. Display the full report using Section rendering rules (same as view_team_feeds) — render all four sections in order: Done, Review, Next, Blocked. If `is_quiet` is true, show `> ⚡ Quiet — shared to a different team context`.
-- **Status 403**: "Not authorized — you are not a member of this team."
-- **Status 404**: "No report found for this user on this date."
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### update_section_meta
-
-Update notes and/or attachments on a section of the user's result-feed.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-- **section**: Extract from args — must be `done`, `review`, `next`, or `blocked`.
-- **notes**: Extract text from args. Use `null` if user says "clear notes".
-- **attachment_ids**: Extract IDs if provided. These are pre-existing attachment IDs (upload is handled outside this skill).
-
-#### Step 2: Confirm
-
-Display:
+Confirm first:
 > Update **{section}** section for {date}:
-> - Notes: "{notes}" (or "clear" if null)
-> - Attachment IDs: [{ids}] (or "unchanged" if not provided)
+> - Item: {item_id}
+> - Notes: "{notes}" (or "clear", or "unchanged")
+> - Attachment IDs: [{ids}] (or "unchanged")
 >
 > Proceed?
 
-Wait for confirmation.
+On success: "Section **{section}** updated."
 
-#### Step 3: Execute
+## Comments and attachments
 
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PUT "/result-feed/DATE/SECTION" '{"notes":"TEXT","attachment_ids":[IDS]}')
-echo "$RESPONSE"
-```
-
-Only include fields the user specified. If only notes, omit `attachment_ids` from the body. If only attachments, omit `notes`.
-
-#### Step 4: Handle response
-
-- **Status 200**: "Section **{section}** updated."
-- **Status 404**: "No report found for this date."
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### react_to_report
-
-Toggle a high-five reaction on a result-feed report.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-
-#### Step 2: Confirm
-
-Display:
-> Toggle high-five reaction on {date}'s check-in?
-
-This is a non-destructive toggle (Constitution IV requires confirmation for POST).
-
-Wait for confirmation.
-
-#### Step 3: Resolve user_id
-
-- **`user_id`**: Extract from args if specified (e.g., "high-five user 7", "react to {user}'s check-in"). If omitted, use the current user's ID from config or omit from body (server defaults to own report).
-
-#### Step 4: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/result-feed/DATE/reactions" '{"user_id":USER_ID}')
-echo "$RESPONSE"
-```
-
-#### Step 5: Handle response
-
-- **Status 200**: Extract `body.data.reacted` and `body.data.count`. Display:
-  > 🙌 High-five count: {count} — You: {reacted? "reacted ✓" : "not reacted"}
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### view_reactions
-
-View the current reaction state for a result-feed report without toggling.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-- **user_id**: Extract from args if specified (e.g., "reactions on user 7's check-in"). If omitted, use the current user's ID.
-
-#### Step 2: Fetch reactions
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/result-feed/DATE/reactions?user_id=USER_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Extract `body.data.reacted` and `body.data.count`. Display:
-  > 🙌 High-five count: {count} — You: {reacted? "reacted ✓" : "not reacted"}
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### list_comments
-
-List comments on a result-feed report.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-- **user_id**: Extract from args if specified (e.g., "comments on user 7's check-in"). If omitted, use the current user's ID.
-
-#### Step 2: Fetch comments
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/result-feed/DATE/comments?user_id=USER_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Extract `body.data` array. If empty: "No comments on this check-in." If present, display:
+- **List — `list_result_update_comments`**: `user_id` (required: whose check-in; see The user's own ID), `date?`. It answers a JSON list, oldest first: each comment `id`, `comment`, `user_id`, `created_at`. On someone else's check-in only the comments you wrote come back. Empty: "No comments on this check-in." Otherwise display (use the `comment` field, not `body`):
 
   ```
   ## Comments — {date}
@@ -287,227 +120,44 @@ echo "$RESPONSE"
   | 1 | 12 | User 7 | Nice work! | 2026-04-26 14:00 |
   ```
 
-  Use the `comment` field (not `body`) for the Comment column.
+- **Add — `add_result_update_comment`**: `body`, `date?`, `user_id?` (whose check-in; the user's own when omitted). Confirm:
+  > Add comment to {date}'s check-in:
+  > "{body}"
+  >
+  > Proceed?
 
-- **Other errors**: Handle per Error Handling table.
+  The answer is the created comment: "Comment added (ID: {id}): "{comment}"" (the `comment` field, not `body`).
 
----
+- **Upload — `add_result_update_attachment`**: `url`, `filename`, `date?`. It registers a file that already lives at a reachable link; nothing is uploaded, and a local file path cannot be uploaded (here or through api.sh), so ask for a link to the hosted file. Confirm "Upload **{filename}** to {date}'s check-in?". The answer is `{id}`: "Uploaded: {filename} (ID: {id}) — use this ID in "attach files" to add it to a section."
 
-### add_comment
+## Fallback (api.sh)
 
-Add a comment to a result-feed report.
+The connector has no tool for these jobs (high-fives and team-context switching are deliberately not in it), so they run as before: `RESPONSE=$("<api.sh path>" METHOD PATH [BODY])` returns `{status, body}`. `DATE_SEGMENT` is `today` or `YYYY-MM-DD`. Confirm writes first.
 
-#### Step 1: Resolve parameters
+| Job | Confirm, then call | On 200 |
+|---|---|---|
+| React (high-five) | Toggle high-five reaction on {date}'s check-in? → `POST /result-feed/DATE_SEGMENT/reactions` `{"user_id":USER_ID}` (USER_ID from the args, e.g. "high-five user 7"; omit the body for the user's own report) | `body.data.reacted`, `body.data.count` → `🙌 High-five count: {count} — You: {reacted ? "reacted ✓" : "not reacted"}` |
+| View reactions | none → `GET /result-feed/DATE_SEGMENT/reactions?user_id=USER_ID` (USER_ID from the args, else the user's own ID) | the same display |
+| Set team context | Set active group context to team **{group_id}**? → `PATCH /users/me/team-context` `{"team_id":GROUP_ID}` (GROUP_ID from the args: "team 5", "group 5", "share to team 5") | "Group context set to team {group_id}." |
 
-- **date**: Use Date Resolution. Default to `today`.
-- **body**: Extract comment text from args.
-- **user_id**: Extract from args if specified. If omitted, use the current user's ID.
-
-#### Step 2: Confirm
-
-Display:
-> Add comment to {date}'s check-in:
-> "{body}"
->
-> Proceed?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/result-feed/DATE/comments" '{"body":"COMMENT_TEXT","user_id":USER_ID}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in COMMENT_TEXT.
-
-#### Step 4: Handle response
-
-- **Status 201**: Extract the created comment. Display:
-  > Comment added (ID: {id}): "{comment}"
-  
-  Use the `comment` field (not `body`) for the text.
-- **Status 422**: Show validation error (body is required, non-empty, max 10,000 chars).
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### set_group_context
-
-Set the calling user's active group context (which team to share check-ins to).
-
-#### Step 1: Resolve parameters
-
-- **group_id**: Extract from args (e.g., "team 5", "group 5", "share to team 5").
-
-#### Step 2: Confirm
-
-Display:
-> Set active group context to team **{group_id}**?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/users/me/group-context" '{"group_id":GROUP_ID}')
-echo "$RESPONSE"
-```
-
-#### Step 4: Handle response
-
-- **Status 200**: "Group context set to team {group_id}."
-- **Other errors**: Handle per Error Handling table.
-
----
-
-### upload_attachment
-
-Upload a file attachment to a result-feed check-in. The returned document ID can be used as an `attachment_id` in `update_section_meta`.
-
-#### Step 1: Resolve parameters
-
-- **date**: Use Date Resolution. Default to `today`.
-- **file_path**: Extract local file path from args (e.g., "upload /path/to/file.pdf", "attach ~/Downloads/report.pdf").
-
-#### Step 2: Confirm
-
-Display:
-> Upload **{filename}** to {date}'s check-in?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-CONFIG="$HOME/.config/resultkit/config.json"
-TOKEN=$(jq -r '.api_token' "$CONFIG")
-BASE=$(jq -r '.api_base' "$CONFIG")
-RESPONSE=$(curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@FILE_PATH" \
-  "$BASE/result-feed/DATE/attachments")
-echo "$RESPONSE"
-```
-
-Replace `FILE_PATH` with the actual local path and `DATE` with the resolved date.
-
-#### Step 4: Handle response
-
-- **Status 200**: Extract `body.data`. Display:
-  > Uploaded: {filename} (ID: {id}) — use this ID in "attach files" to add it to a section.
-- **Status 400**: "Upload failed — unsupported file type or missing file."
-- **Status 413**: "File too large — maximum size is 4.5 MB."
-- **Other errors**: Handle per Error Handling table.
-
----
+api.sh errors: `NO_CONFIG` "Config not found. Run `/rkit:setup` first."; `NO_TOKEN` "No API token. Run `/rkit:setup` to configure."; `CURL_FAILED` "Network error. Check your connection."; 401 "Unauthorized. Run `/rkit:setup` to update your token."; 404 "Not found. Resource may not exist."; 422 shows the validation error from the response body; any other non-200 shows the status code and error message; path `NOT_FOUND` "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`".
 
 ## How to Interpret
 
-1. **Read the user's message.** Look for trigger words/phrases from the routing table.
-2. **Extract parameters.** Look for:
-   - A **team ID** (integer, e.g., "team 5", "--team 5")
-   - A **user ID** (integer, e.g., "user 7", "user_id 7")
-   - A **date** (e.g., "today", "yesterday", "2026-04-27") → convert to `YYYY-MM-DD`
-   - A **section** ("done", "review", "next", "blocked")
-   - **Text content** (comment body, notes text)
-3. **Pick the matching tool row.** Use the routing table.
-4. **Default to `view_team_feeds`** if no clear intent is detected.
-5. **If ambiguous**, ask the user: "Did you mean to [option A] or [option B]?"
+Look for trigger words/phrases from the routing table and extract a **team ID** ("team 5", "--team 5"), a **user ID** ("user 7", "user_id 7", "comments on user 7's check-in", "react to {user}'s check-in"), a **date** ("today", "yesterday", "2026-04-27" → `YYYY-MM-DD`), a **section** ("done", "review", "next", "blocked") and **text content** (comment body, notes text). Pick the matching row; default to viewing the team feed when no clear intent is detected. If ambiguous, ask: "Did you mean to [option A] or [option B]?"
 
----
+## Errors
 
-## Schemas
-
-**TeamResultFeed:**
-```json
-{
-  "id": 42,
-  "date": "2026-02-26",
-  "is_completed": true,
-  "user": { "id": 1, "login": "pat", "first_name": "Pat", "last_name": "A" },
-  "done":    { "items": [Item, ...], "notes": "string or null", "attachments": [Attachment, ...] },
-  "review":  { "items": [Item, ...], "notes": null, "attachments": [] },
-  "next":    { "items": [Item, ...], "notes": null, "attachments": [] },
-  "blocked": { "items": [Item, ...], "notes": null, "attachments": [] }
-}
-```
-
-**ResultFeedSection** (each of `done`, `review`, `next`, `blocked`):
-```json
-{
-  "items": [Item, ...],
-  "notes": "Free-text notes or null",
-  "attachments": [
-    { "id": 42, "filename": "spec.pdf", "content_type": "application/pdf", "size": 43008 }
-  ]
-}
-```
-
-**Item (within sections):**
-```json
-{
-  "id": 415,
-  "name": "Write proposal",
-  "description": null,
-  "due": "2026-02-25",
-  "status": "next",
-  "on_weekly": true,
-  "team": { "id": 1, "name": "Acme Team" },
-  "creator": { "id": 1, "login": "patrick", "first_name": "Patrick", "last_name": "Smith" },
-  "assignees": [],
-  "parent_id": null,
-  "created_at": "2026-02-19T08:00:00Z",
-  "updated_at": "2026-02-19T08:00:00Z"
-}
-```
-
-**Attachment:**
-```json
-{
-  "id": 42,
-  "filename": "spec.pdf",
-  "content_type": "application/pdf",
-  "size": 43008
-}
-```
-
-**Pagination:**
-```json
-{
-  "page": 1,
-  "per_page": 100,
-  "total": 5,
-  "total_pages": 1
-}
-```
-
----
-
-## Error Handling
-
-| Status | Response |
+| The tool answers | Say |
 |---|---|
-| `error: NO_CONFIG` | "Config not found. Run `/rkit:setup` first." |
-| `error: NO_TOKEN` | "No API token. Run `/rkit:setup` to configure." |
-| `error: CURL_FAILED` | "Network error. Check your connection." |
-| `status: 401` | "Unauthorized. Run `/rkit:setup` to update your token." |
-| `status: 403` | "Not authorized — you are not a member of this team." |
-| `status: 404` | "Not found. Resource may not exist." |
-| `status: 422` | Show validation error from response body. |
-| Other non-200 | Show status code and error message. |
-
-### Edge Cases
-
-- **No config**: "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
-- **No default_team_id and no --team**: Prompt user for team ID.
-- **Empty feed list**: "No shared check-ins found for this team."
-- **Empty comment body**: Show 422 validation error.
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| "Team not found or you don't have access to it." | Team feed: "Team not found or you are not a member." Member report: "No report found for this user on this date, or you are not a member of this team." |
+| "To-do or issue not found or you don't have access to it." | "Item {id} not found or not viewable." |
+| "Unsupported section…" | "Invalid section. Use: done, review, next, or blocked." |
+| "Report not found" | "Not found. Resource may not exist." |
+| "Invalid date…" | Show it as returned. |
+| "A comment cannot be empty." | Show it as returned (the comment text is required). |
+| any other `Error: …` | Show it as returned. |
 
 ## References
 

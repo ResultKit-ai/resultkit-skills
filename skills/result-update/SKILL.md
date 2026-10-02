@@ -7,21 +7,22 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Gre
 
 # rkit:result-update
 
-A single skill that handles all result update composition operations by interpreting user intent against a tool routing table.
+A single skill that handles all result update composition operations by interpreting user intent against a tool routing table. It drives the ResultKit connector's MCP tools; `scripts/api.sh` is used only for the jobs under **Fallback**. Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
 
 ## Current State
 
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/result-update/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/result-update/scripts/api.sh "$HOME/.claude/skills/rkit:result-update/scripts/api.sh" "$HOME/.agents/skills/result-update/scripts/api.sh" "$HOME/.gemini/skills/result-update/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
+- Config (default team, Fallback): !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/result-update/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/result-update/scripts/api.sh "$HOME/.claude/skills/rkit:result-update/scripts/api.sh" "$HOME/.agents/skills/result-update/scripts/api.sh" "$HOME/.gemini/skills/result-update/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 - Today: !`date +%Y-%m-%d`
 
 ## Rules
 
 - **Interpret first, act second.** Read the user's message. Match it against the Tool Routing Table below. Pick the best match. If ambiguous, ask.
-- **Confirm writes.** GET requests execute immediately. POST/PUT/DELETE: summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
+- **Confirm writes.** Reads execute immediately. For writes, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
 - **Show IDs.** Always include item IDs in output.
 - **Concise output.** Tables and short summaries. No filler.
-- **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
+- **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
+- **Date argument.** For today, omit `date`. Pass `date` as `YYYY-MM-DD` only for another day.
 
 ---
 
@@ -31,47 +32,21 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 | Triggers | Intent | Tool/Flow |
 |---|---|---|
-| "show my update", "my check-in", "90 seconds", "daily report", "what did I do", "show {date}", "check-in", "what did I get done", "my result update" | View my update for today or a date | `get_result_feed` |
-| "add done", "add next", "add blocked", "new done item", "create done", "add to done", "add to next", "add to blocked" | Create a new item in a section | `create_new_item` |
-| "add item {id} to done", "put {id} in next", "attach {id} to blocked", "attach {id} to done", "move {id} to next" | Attach an existing item to a section by ID | `attach_existing_item` |
-| "remove {id} from done", "take {id} off next", "drop {id} from blocked", "remove {id}" | Remove an item from a section | `remove_item` |
-| "submit", "finalize", "done for the day", "submit check-in", "share check-in", "submit update", "send update" | Submit and share update | `submit_check_in` |
-| "comment on {id}", "add a comment to {id}", "leave a note on {id}" | Add a comment to an item in my update | `add_comment_on_item` |
-| "show comments on {id}", "what did people say on {id}" | List comments on an item in my update | `list_comments_on_item` |
-| "edit comment {comment_id}", "update comment {comment_id}" | Edit my comment | `edit_comment` |
-| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | `delete_comment` |
+| "show my update", "my check-in", "90 seconds", "daily report", "what did I do", "show {date}", "check-in", "what did I get done", "my result update" | View my update for today or a date | `get_result_update` |
+| "add done", "add next", "add blocked", "new done item", "create done", "add to done", "add to next", "add to blocked" | Create a new item in a section | `add_result_update_todo` (done, next) · `add_result_update_issue` (blocked) |
+| "add item {id} to done", "put {id} in next", "attach {id} to blocked", "attach {id} to done", "move {id} to next" | Attach an existing item to a section by ID | `place_on_result_update` |
+| "remove {id} from done", "take {id} off next", "drop {id} from blocked", "remove {id}" | Remove an item from a section | `remove_from_result_update` |
+| "submit", "finalize", "done for the day", "submit check-in", "share check-in", "submit update", "send update" | Submit and share update | `submit_result_update` |
+| "comment on {id}", "add a comment to {id}", "leave a note on {id}" | Add a comment to an item in my update | `add_item_comment` |
+| "show comments on {id}", "what did people say on {id}" | List comments on an item in my update | `list_item_comments` |
+| "edit comment {comment_id}", "update comment {comment_id}" | Edit my comment | Fallback: edit comment |
+| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | Fallback: delete comment |
 
 ---
 
-## Tool/Flow
+## View: `get_result_update`
 
-### get_result_feed
-
-Determine the date path segment:
-- No args → use `today`
-- Date argument → use the resolved date string (see Date Resolution)
-
-#### Step 1: Fetch result feed
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/result-feed/DATE_SEGMENT")
-echo "$RESPONSE"
-```
-
-Replace `DATE_SEGMENT` with `today` or the `YYYY-MM-DD` date.
-
-#### Step 2: Handle response
-
-Parse the JSON response from api.sh:
-
-**Error responses** (status 0 or non-200):
-- Handle per error handling table below.
-- `status: 400` → "Invalid date format. Use YYYY-MM-DD or 'today'."
-
-**Success (status 200)**:
-
-Extract `body.data` object: `id`, `date`, `is_completed`, `done[]`, `next[]`, `blocked[]`.
+Call `get_result_update` with no arguments for today, or with `date` for another day (never `team_id` or `user_id` here). Reading starts the day's update when there is none; that is expected. It answers JSON: `id`, `date`, `is_completed` and the sections `done`, `review`, `next`, `blocked`, each `{items, notes, attachments}`; every item has `id` and `name`. Show Done, Next and Blocked from each section's `items`.
 
 - **All sections empty**: Display:
   > ## My Update — {date_label}
@@ -103,385 +78,64 @@ Extract `body.data` object: `id`, `date`, `is_completed`, `done[]`, `next[]`, `b
   **{total} items** — {done_count} done, {next_count} next, {blocked_count} blocked
   ```
 
-  - `date_label`: "Today" for today segment, or the formatted date
+  - `date_label`: "Today" when `date` was omitted, or the formatted date
   - `Status`: "Submitted ✓" if `is_completed` is true, "Not submitted" if false
   - Empty sections show "No items."
   - Summary line counts items across all sections
 
----
+## Writes
 
-### create_new_item
+Confirm first, then call the tool. After create, attach or remove, re-read with `get_result_update` and show the updated update (same date). Pass `date` only for another day.
 
-#### Step 1: Extract parameters
+| Flow | Tool and arguments | Confirm | On success |
+|---|---|---|---|
+| create | `add_result_update_todo`: `section` (`done` or `next`), `name` · for blocked, `add_result_update_issue`: `name` | Create item "**{name}**" in **{section}** section? | Created item **{id}**: "{name}" in {section} (the answer is the new item: take its `id`) |
+| attach | `place_on_result_update`: `section`, `item_id` | Add item **{id}** to **{section}** section? | Item **{id}** added to {section}. An item already in the section is fine (idempotent). |
+| remove | `remove_from_result_update`: `section`, `item_id` | Remove item **{id}** from **{section}**? (Item will not be deleted.) | Item **{id}** removed from {section}. |
+| submit | `submit_result_update`: `team_id` | Submit update for **{date_label}** and share with team "**{team_name}**" (ID: {team_id})? | Update submitted and shared with **{team_name}**. The answer is the updated update: show it as in the view, with no second read. Re-submitting is fine (idempotent). |
+| comment | `add_item_comment`: `todo_or_issue` = ID, `body` | Add comment to item **{id}**: "{text}" Proceed? | Comment added (ID: {comment_id}) to item **{item_id}**: "{text}" (the answer reads "Comment N added to …": take N) |
 
-Extract the **item name** (quoted text or text after "add done"/"add next"/"add blocked") and the **section** (done, next, or blocked) from the user's message.
+**Submit — team.** Use the team ID the user gave; else `default_team_id` from Current State's config; else ask "No default team configured. Which team ID should this be shared with?" (`list_teams` lists the teams and their IDs). Before the confirmation, read the team's name with `get_team` (`team_id`): its answer opens with `# {team_name}`.
 
-If section is unclear, ask: "Which section — done, next, or blocked?"
+**Comments.** Items in your Done/Next/Blocked sections are ordinary items: comments go straight to the item, not to the check-in report. `list_item_comments` (`todo_or_issue` = ID) answers JSON `{todo_or_issue, page, per_page, total, comments}`, each comment `{id, body, author, created_at, updated_at}`. None: "No comments on item {id}." Otherwise show the table below (Author = `author.first_name` `author.last_name`), strip HTML from `body`, and append `(edited)` after the time when `updated_at` is later than `created_at`:
 
-#### Step 2: Confirm
-
-Display:
-> Create item "**{name}**" in **{section}** section?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/result-feed/DATE_SEGMENT/SECTION" '{"name":"ITEM_NAME"}')
-echo "$RESPONSE"
+```
+| ID | Author | Comment | Time |
+|----|--------|---------|------|
+| 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
 ```
 
-Escape any double quotes in ITEM_NAME. Use `today` as DATE_SEGMENT unless user specified a date.
+## Fallback (api.sh)
 
-#### Step 4: Handle response
+The connector has no tool to edit or delete a comment, so these two run as before: `RESPONSE=$("<api.sh path>" METHOD PATH [BODY])` returns `{status, body}`. Confirm first, as above.
 
-- **Status 201**: Show:
-  > Created item **{id}**: "{name}" in {section}
+| Job | Confirm, then call | Answers |
+|---|---|---|
+| Edit comment | Edit comment **{comment_id}** to: "{text}"? → `PATCH /comments/COMMENT_ID` `{"body":"NEW_TEXT"}` (escape any double quotes in NEW_TEXT) | 200 "Comment **{comment_id}** updated." · 403 "You can only edit your own comments." · 404 "Comment {comment_id} not found." · 422 "Comment text cannot be empty." |
+| Delete comment | Delete comment **{comment_id}**? This cannot be undone. → `DELETE /comments/COMMENT_ID` | 200 "Comment **{comment_id}** deleted." · 403 "You can only delete your own comments (a team admin can also delete any comment on this item)." · 404 "Comment {comment_id} not found." |
 
-  Then re-fetch and display the updated check-in using `get_result_feed`.
-- **Status 400**: "Invalid section. Use: done, next, or blocked."
-- **Status 422**: Show validation error from response body.
-- **Other errors**: Handle per error handling table.
-
----
-
-### attach_existing_item
-
-#### Step 1: Extract parameters
-
-Extract the **item ID** (integer) and **section** (done, next, or blocked) from the user's message.
-
-#### Step 2: Confirm
-
-Display:
-> Add item **{id}** to **{section}** section?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PUT "/result-feed/DATE_SEGMENT/SECTION/ITEM_ID")
-echo "$RESPONSE"
-```
-
-#### Step 4: Handle response
-
-- **Status 200**: Show:
-  > Item **{id}** added to {section}.
-
-  Then re-fetch and display the updated check-in using `get_result_feed`.
-  Note: already-present items also return 200 (idempotent).
-- **Status 400**: "Invalid section. Use: done, next, or blocked."
-- **Status 404**: "Item {id} not found or not viewable."
-- **Other errors**: Handle per error handling table.
-
----
-
-### remove_item
-
-#### Step 1: Extract parameters
-
-Extract the **item ID** (integer) and **section** (done, next, or blocked) from the user's message.
-
-#### Step 2: Confirm
-
-Display:
-> Remove item **{id}** from **{section}**? (Item will not be deleted.)
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" DELETE "/result-feed/DATE_SEGMENT/SECTION/ITEM_ID")
-echo "$RESPONSE"
-```
-
-#### Step 4: Handle response
-
-- **Status 204**: Show:
-  > Item **{id}** removed from {section}.
-
-  Then re-fetch and display the updated check-in using `get_result_feed`.
-- **Status 400**: "Invalid section. Use: done, next, or blocked."
-- **Status 404**: "Item {id} not found in {section} section."
-- **Other errors**: Handle per error handling table.
-
----
-
-### submit_check_in
-
-#### Step 1: Determine team
-
-1. If user specified a team ID in their message, use that.
-2. Else read `default_team_id` from config:
-   ```bash
-   TEAM_ID=$(jq -r '.default_team_id // empty' "$HOME/.config/resultkit/config.json")
-   ```
-3. If no `default_team_id`: prompt user "No default team configured. Which team ID should this be shared with?"
-
-#### Step 2: Fetch team name for display
-
-```bash
-API_SH="<api.sh path>"
-TEAM_RESPONSE=$("$API_SH" GET "/teams/TEAM_ID")
-echo "$TEAM_RESPONSE"
-```
-
-Extract team name from `body.data.name`.
-
-#### Step 3: Determine date segment
-
-No args → use `today`. Date argument → use resolved date.
-
-#### Step 4: Confirm
-
-Display:
-> Submit update for **{date_label}** and share with team "**{team_name}**" (ID: {team_id})?
-
-Wait for confirmation.
-
-#### Step 5: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/result-feed/DATE_SEGMENT/submit" '{"team_id":TEAM_ID}')
-echo "$RESPONSE"
-```
-
-#### Step 6: Handle response
-
-- **Status 200**: Show:
-  > Update submitted and shared with **{team_name}**.
-
-  Then re-fetch and display the updated check-in using `get_result_feed`.
-  Note: re-submitting an already-completed feed returns 200 (idempotent).
-- **Status 404**: "Team not found."
-- **Status 422**: Show validation error from response body (likely "Done and Next sections must each have at least one item").
-- **Other errors**: Handle per error handling table.
-
----
-
-### add_comment_on_item
-
-Items in your Done/Next/Blocked sections are ordinary items — comments go straight to the item, not to the check-in report.
-
-#### Step 1: Resolve parameters
-
-Extract the **item ID** and **comment text** from args.
-
-#### Step 2: Confirm
-
-Display:
-> Add comment to item **{id}**:
-> "{text}"
->
-> Proceed?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body":"COMMENT_TEXT"}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in COMMENT_TEXT.
-
-#### Step 4: Handle response
-
-- **Status 201**: Extract the created comment from `body.data`. Display:
-  > Comment added (ID: {id}) to item **{item_id}**: "{body}"
-- **Status 404**: "Item {id} not found."
-- **Status 422**: "Comment text cannot be empty."
-- **Other errors**: Handle per error handling table.
-
----
-
-### list_comments_on_item
-
-#### Step 1: Resolve parameters
-
-Extract the **item ID** from args.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Extract `body.data` array. If empty:
-  > No comments on item {id}.
-
-  If present, display:
-  ```
-  | ID | Author | Comment | Time |
-  |----|--------|---------|------|
-  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
-  ```
-  Append `(edited)` after the time when `updated_at` is later than `created_at`.
-- **Status 404**: "Item {id} not found."
-- **Other errors**: Handle per error handling table.
-
----
-
-### edit_comment
-
-#### Step 1: Resolve parameters and confirm
-
-Extract the **comment ID** and **new text**. Display:
-> Edit comment **{comment_id}** to: "{text}"?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body":"NEW_TEXT"}')
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: "Comment **{comment_id}** updated."
-- **Status 403**: "You can only edit your own comments."
-- **Status 404**: "Comment {comment_id} not found."
-- **Status 422**: "Comment text cannot be empty."
-- **Other errors**: Handle per error handling table.
-
----
-
-### delete_comment
-
-#### Step 1: Resolve parameters and confirm
-
-Extract the **comment ID**. Display:
-> Delete comment **{comment_id}**? This cannot be undone.
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: "Comment **{comment_id}** deleted."
-- **Status 403**: "You can only delete your own comments (a team admin can also delete any comment on this item)."
-- **Status 404**: "Comment {comment_id} not found."
-- **Other errors**: Handle per error handling table.
-
----
+api.sh errors: `NO_CONFIG` "Config not found. Run `/rkit:setup` first."; `NO_TOKEN` "No API token. Run `/rkit:setup` to configure."; `CURL_FAILED` "Network error. Check your connection."; 401 "Unauthorized. Run `/rkit:setup` to update your token."; any other non-200 shows the status code and error message; path `NOT_FOUND` "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`".
 
 ## How to Interpret
 
-1. **Read the user's message.** Look for trigger words/phrases from the table.
-2. **Extract parameters.** Look for:
-   - An **item ID** (integer, e.g., "415", "item 415", "#415")
-   - A **date** (e.g., "tomorrow", "Monday", "2026-02-20") → convert to `YYYY-MM-DD`
-   - A **name** (quoted text, or text after "add done"/"add next"/"add blocked")
-   - A **section** (done, next, blocked — note "issues" means "blocked")
-3. **Pick the matching tool row.** If the user provides an ID with "add"/"attach"/"put", use `attach_existing_item`. If they provide a name/text, use `create_new_item`.
-4. **Default to `get_result_feed`** if no clear write intent is detected.
-5. **If ambiguous**, ask the user: "Did you mean to [option A] or [option B]?"
+1. Look for trigger phrases in the table. Extract an **item ID** (integer: "415", "item 415", "#415"), a **date**, a **name** (quoted text, or text after "add done"/"add next"/"add blocked") and a **section**.
+2. An ID with "add"/"attach"/"put" means attach; a name or text means create. With no clear write intent, view the update. If ambiguous, ask: "Did you mean to [option A] or [option B]?"
+3. **Dates:** nothing or "today" = omit `date`. "tomorrow", "yesterday", "Monday", "next Tuesday", "Feb 20", "2026-02-20" = that day as `YYYY-MM-DD`, resolved from Today above.
+4. **Sections:** "done", "completed", "finished" → `done`; "next", "up next", "planned" → `next`; "blocked", "issues", "blockers", "stuck" → `blocked`. If the section is unclear when creating, ask: "Which section — done, next, or blocked?"
 
-### Date Resolution
+## Errors
 
-| User says | Segment value |
+| The tool answers | Say |
 |---|---|
-| *(nothing)* / "today" | `today` |
-| "tomorrow" | tomorrow's date as `YYYY-MM-DD` |
-| "yesterday" | yesterday's date as `YYYY-MM-DD` |
-| "Monday", "next Tuesday", etc. | resolve to `YYYY-MM-DD` |
-| "2026-02-20", "Feb 20" | `2026-02-20` |
-
-Use the current date from **Current State** to resolve relative dates.
-
-### Section Resolution
-
-| User says | Section value |
-|---|---|
-| "done", "completed", "finished" | `done` |
-| "next", "up next", "planned" | `next` |
-| "blocked", "issues", "blockers", "stuck" | `blocked` |
-
-Always use `done`, `next`, `blocked` in API paths.
-
----
-
-## Schemas
-
-**ResultFeed:**
-```json
-{
-  "id": 42,
-  "date": "2026-02-26",
-  "is_completed": false,
-  "done": [Item, ...],
-  "next": [Item, ...],
-  "blocked": [Item, ...]
-}
-```
-
-**Item (within sections):**
-```json
-{
-  "id": 415,
-  "name": "Write proposal",
-  "description": null,
-  "due": "2026-02-25",
-  "status": "next",
-  "on_weekly": true,
-  "team": { "id": 1, "name": "Acme Team" },
-  "creator": { "id": 1, "login": "patrick", "first_name": "Patrick", "last_name": "Smith" },
-  "assignees": [],
-  "parent_id": null,
-  "created_at": "2026-02-19T08:00:00Z",
-  "updated_at": "2026-02-19T08:00:00Z"
-}
-```
-
----
-
-## Error Handling
-
-| Status | Response |
-|---|---|
-| `error: NO_CONFIG` | "Config not found. Run `/rkit:setup` first." |
-| `error: NO_TOKEN` | "No API token. Run `/rkit:setup` to configure." |
-| `error: CURL_FAILED` | "Network error. Check your connection." |
-| `status: 401` | "Unauthorized. Run `/rkit:setup` to update your token." |
-| `status: 400` | Show error message from response body. |
-| `status: 404` | Context-dependent message (see individual flows). |
-| `status: 422` | Show validation error from response body. |
-| Other non-200 | Show status code and error message. |
-
-### Edge Cases
-
-- **No config**: Any flow → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
-- **Item already in section** (PUT/attach): Idempotent — API returns 200.
-- **Empty check-in on view**: Show helpful message with add hint.
-- **No default_team_id for submit**: Prompt user for team ID.
-- **Empty comment text**: "Comment text cannot be empty."
-- **Comment not found (404)**: "Comment {id} not found."
-- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| "Invalid date format…" | "Invalid date format. Use YYYY-MM-DD or 'today'." |
+| "Unsupported section…" | "Invalid section. Use: done, next, or blocked." |
+| "To-do or issue not found or you don't have access to it." | On attach: "Item {id} not found or not viewable." On comments: "Item {id} not found." |
+| "…is not in the {section} section." | "Item {id} not found in {section} section." |
+| "Team not found or you don't have access to it." | "Team not found." |
+| "Done section must have at least one item" or "Next section must have at least one item" | Show it as returned (Done and Next must each hold at least one item). |
+| "A comment cannot be blank." | "Comment text cannot be empty." |
+| any other `Error: …` | Show it as returned. |
 
 ## References
 

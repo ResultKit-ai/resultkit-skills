@@ -7,21 +7,21 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Gre
 
 # rkit:braindump
 
-Parse unstructured input into organized action items using the team's management framework.
+Parse unstructured input into organized action items using the team's management framework. It reads the team's framework with the ResultKit connector's MCP tools and writes nothing itself. Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
 
 ## Current State
 
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
+- Config (default team): !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
 - Today: !`date +%Y-%m-%d`
 
 ## Rules
 
 - **Interpret first, act second.** Read the user's pasted text. Parse it. Present the table. Ask only when truly ambiguous.
-- **Confirm writes.** GET requests execute immediately. POST/PUT/PATCH/DELETE: summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
+- **Confirm writes.** Reads execute immediately. For writes, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
 - **Show IDs.** Always include entity IDs in output.
 - **Concise output.** Tables and short summaries. No filler.
-- **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
-- **Framework-aware.** Use the team's framework terminology (EOS, OKR, 4DX, V2MOM, SRT) when labeling items.
+- **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool.
+- **Framework-aware.** Use the team's framework terminology (EOS, OKR, 4DX, V2MOM, SRT) when labeling items. Read the framework with `get_team` (its `Framework` line). The team is `default_team_id` from Current State; with none, the one team `list_teams` returns. With several teams and none named in the text, or if the connector is not connected or the lookup fails, do not ask and do not stop: parse the text and label with EOS terms.
 
 ---
 
@@ -121,6 +121,10 @@ Example questions:
 - "Owner: These appear to be Gus's items—confirm? Exception: item X mentions 'Robert'—is Robert the owner?"
 - "Completed items: Include SUP-909 and SUP-347 as Done, or filter out?"
 - "Context: Do any of these belong to an L10 or 1:1, or all Personal Planner?"
+
+## Fallback (api.sh)
+
+None. This skill has no api.sh job: it parses the user's text and, at most, reads the team's framework from the connector.
 
 ## References
 

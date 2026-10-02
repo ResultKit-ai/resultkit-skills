@@ -7,17 +7,19 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQues
 
 # rkit:1on1
 
+Drives the ResultKit connector's MCP tools; `scripts/api.sh` is used only for the jobs under **Fallback (api.sh)**. Tools are named by base name below; the callable name is `mcp__<server>__<tool>` and the `<server>` alias varies by install, so match on the base name.
+
 ## Current State
 
 - Config status: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/1on1/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/1on1/scripts/api.sh "$HOME/.claude/skills/rkit:1on1/scripts/api.sh" "$HOME/.agents/skills/1on1/scripts/api.sh" "$HOME/.gemini/skills/1on1/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/1on1/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/1on1/scripts/api.sh "$HOME/.claude/skills/rkit:1on1/scripts/api.sh" "$HOME/.agents/skills/1on1/scripts/api.sh" "$HOME/.gemini/skills/1on1/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
 
-- **Confirm writes**: Before any POST/PUT/PATCH/DELETE, summarize all planned changes in a single prompt and ask for confirmation. If the command implies multiple related mutations, batch them under one confirmation. GET requests execute immediately.
-- **Show IDs**: Always include item and meeting IDs in output so users can reference them.
+- **Confirm writes**: Before any create, move, remove, save or comment, summarize all planned changes in a single prompt and ask for confirmation. If the command implies multiple related mutations, batch them under one confirmation. Reads execute immediately.
+- **Show IDs**: Always include item and meeting IDs in output so users can reference them (this overrides the connector's general "never print ids" note).
 - **Concise output**: Tables and short summaries. No verbose prose.
-- **Direct execution**: Use Bash for all API calls via api.sh. Never use Task agents or subagents.
+- **Direct execution**: Call the connector tools directly. Never use Task agents or subagents, never curl or hand-build a URL, and skip the connector's `guide` tool — the flows below are complete for this skill.
 
 ## Argument Parsing
 
@@ -44,63 +46,29 @@ Parse the user input to determine which flow to follow:
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
 
----
-
-## Error Handling
-
-Parse the JSON response from api.sh. Handle these cases:
-
-- `"error": "NO_CONFIG"` or `"error": "NO_TOKEN"` → "Config not found. Run `/rkit:setup` first."
-- `"error": "CURL_FAILED"` → "Network error. Check your connection."
-- `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
-- `status: 404` → "Not found (404)."
-- `status: 422` → Show validation error from response body.
-- Other non-200 → Show status code and error from response body.
-
----
-
 ## Team ID Resolution
 
 1. **`--team {id}` flag** in args → use that team ID
 2. **`default_team_id` in config** → use that
 3. **Neither** → no team filter applied (show all one-on-ones)
 
----
+## Reads
+
+| Job | Tool and arguments |
+|---|---|
+| Team name | `get_team`: `team_id` (text; line 1 is `# {team_name}`) |
+| List one-on-ones | `list_1on1s`: `team_id?`, `per_page` (100) |
+| Open one (people, items by column) | `get_1on1`: `meeting_id` |
+| One item (name, status) | `get_item`: `todo_or_issue` |
+| Comments on an item | `list_item_comments`: `todo_or_issue` |
+
+`list_1on1s` answers JSON `{one_on_ones, page, per_page, total}`; each row has `id`, `date`, `human_name`, `persons` (`person1`, `person2`: `first_name`, `last_name`, `login`) and `assisted`. `get_1on1` answers JSON with `human_name`, `persons` and `items: {next, done, issues}`; each item has `id`, `name`, `status`, `due`, `creator`. Read columns from `get_1on1`: the connector's `list_1on1_section` and `list_1on1_todos_issues` return raw rows with only the creator's `user_id`, no name.
 
 ## Flow: List One-on-Ones
 
 **Trigger**: No args (or only `--team {id}`)
 
-### Step 1: Resolve team and fetch meetings
-
-Resolve team ID using Team ID Resolution.
-
-**If team ID is resolved** — fetch team detail for the team name, then fetch meetings filtered by team:
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEAM=$("$API_SH" GET "/teams/TEAM_ID")
-echo "$TEAM"
-RESPONSE=$("$API_SH" GET "/1-on-1?group_id=TEAM_ID&per_page=100")
-echo "$RESPONSE"
-```
-
-**If no team ID** — fetch all one-on-ones (no filter):
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/1-on-1?per_page=100")
-echo "$RESPONSE"
-```
-
-### Step 2: Filter and display
-
-Filter the response client-side:
-- `type` must be `one_on_one` (always — exclude project meetings)
-
-Display as a table:
-
-**With team filter:**
+Resolve the team ID (Team ID Resolution). With a team ID, call `get_team` and `list_1on1s` (`team_id`, `per_page` 100) together; without one, call `list_1on1s` (`per_page` 100) alone. Every row is a one-on-one (project meetings are never listed). Display as a table:
 
 ```
 ## One-on-Ones — {team_name} (ID: {team_id})
@@ -113,51 +81,20 @@ Display as a table:
 {count} one-on-ones
 ```
 
-**Without team filter:**
-
-```
-## One-on-Ones
-
-| ID | With | Date |
-|----|------|------|
-| 15 | Patrick Angodung | 2026-02-20 |
-| 22 | Mary Mejia | 2026-02-18 |
-
-{count} one-on-ones
-
-Tip: Set a default team with `/rkit:setup` to filter by team.
-```
+Without a team filter the heading is `## One-on-Ones`, and after the count add: `Tip: Set a default team with `/rkit:setup` to filter by team.`
 
 **Display rules**:
-- `With` column: show the other participant (`persons.person1` or `persons.person2` — whichever is not the current user). Use `human_name` as the meeting display name if needed. Show `first_name last_name` for the person; fall back to `login` if names are empty.
+- `With` column: show the other participant (`persons.person1` or `persons.person2` — whichever is not the current user). There is no who-am-I tool: the current user is the person who appears in every row; a row with `assisted: true` shows both names. Use `human_name` as the meeting display name if needed. Show `first_name last_name` for the person; fall back to `login` if names are empty.
 - `Date` column: show date if present, "—" if null
 
 **Empty result (with team)**: "No one-on-ones found for {team_name}."
 **Empty result (no team)**: "No one-on-ones found."
 
----
-
 ## Flow: View One-on-One Detail
 
 **Trigger**: `{meeting_id}` or `show {meeting_id}`
 
-### Step 1: Fetch meeting detail
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/1-on-1/MEETING_ID")
-echo "$RESPONSE"
-```
-
-### Step 2: Display meeting
-
-The response nests sections under an `items` key: `items.next`, `items.done`, `items.issues`. The `items.issues` array is the **Blocked** column.
-
-Persons are nested under `persons`: `persons.person1`, `persons.person2`.
-
-Before rendering, filter each array: **exclude any item where `status == "archived"`**. Items with null or missing `status` are treated as active and kept.
-
-Display format:
+Call `get_1on1` (`meeting_id`) and display:
 
 ```
 ## One-on-One: {persons.person1 name} & {persons.person2 name} (ID: {meeting_id})
@@ -188,316 +125,69 @@ Display format:
 - Empty columns show "(empty)"
 - Column order: next, done, blocked (always this order)
 
----
+## Flow: View Single Column / Done Items
 
-## Flow: View Single Column
+**Trigger**: `{meeting_id} next`, `{meeting_id} blocked`, `{meeting_id} issues` (alias for `blocked`), `{meeting_id} done`, or `{meeting_id} done --since YYYY-MM-DD`
 
-**Trigger**: `{meeting_id} next`, `{meeting_id} blocked`, or `{meeting_id} issues`
+Call `get_1on1` and show only the requested column — `next` → `items.next`, `blocked` or `issues` → `items.issues`, `done` → `items.done` (the default Done window: completed in the last 10 days, shown newest first by `complete`) — with archived items excluded as in View One-on-One Detail. Use the same display format as a single section from View Detail — column header, item table (ID, Name, Creator, Due); with more than 50 items show the first 50 and "({total} total, showing first 50)". Done header: `### Done ({count} items)`.
 
-> **Note**: `{meeting_id} done` is handled by the dedicated Done Items flow (see below). `issues` is an alias for `blocked`.
+`done --since DATE` runs the Fallback done read instead, with `start_date` = DATE and `end_date` = today. Header: `### Done since {date} ({count} items)`.
 
-### Step 1: Fetch the requested column
+## Writes
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/1-on-1/MEETING_ID/items/COLUMN?per_page=50")
-echo "$RESPONSE"
-```
+Confirm first, then call the tool. Names and ids in the success lines come from the tool's answer, or from `get_item`.
 
-Replace `COLUMN` with:
-- `next` for next items
-- `blocked` for blocked/issues items (`issues` trigger also maps here)
+| Flow | Tool and arguments | Confirm | On success |
+|---|---|---|---|
+| Move Item (`{meeting_id} move {item_id} {column}`) | `move_on_1on1`: `meeting_id`, `todo_or_issue`, `section` (`next` → `todos`, `blocked` → `issues`, `done` → `done`) | Move item **{item_name}** (ID: {item_id}) from **{current_column}** to **{target_column}**? | Moved **{item_name}** (ID: {item_id}) to **{target_column}**. |
+| Add new item (`{meeting_id} add "text"`) | `add_1on1_todo` (default column `next`) or `add_1on1_issue` (blocked): `meeting_id`, `name`, `description?` | Add **"{text}"** to one-on-one {meeting_id}? | Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}. |
+| Add existing item (`{meeting_id} add {item_id}`) | `place_on_1on1`: `meeting_id`, `todo_or_issue` | Add **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}? | Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}. |
+| Remove Item (`{meeting_id} remove {item_id}`) | `remove_from_1on1`: `meeting_id`, `todo_or_issue` | Remove item {item_id} from one-on-one {meeting_id}? (Item will still exist — only detached from this meeting.) | Removed item {item_id} from one-on-one {meeting_id}. |
+| Save Notes (`{meeting_id} notes "text"`) | `save_1on1_notes`: `meeting_id`, `text` | Save notes to one-on-one {meeting_id}? (This will overwrite any existing notes.) | Notes saved to one-on-one {meeting_id}. |
+| Add Comment (`{meeting_id} comment {item_id} "text"`) | `add_item_comment`: `todo_or_issue`, `body` | Add comment to item **{item_id}** in one-on-one {meeting_id}: "{text}" Proceed? | Comment added (ID: {id}) to item **{item_id}**: "{body}" (the answer carries the comment id) |
 
-### Step 2: Display column
-
-Use same display format as a single section from View Detail — column header, item table, overflow indicator if more than 50 items.
-
-> **Note**: `GET /1-on-1/{id}/items/{section}` excludes archived items by API default (`include_archived` defaults to `false`). No client-side filtering is needed for this flow.
-
----
-
-## Flow: Done Items
-
-**Trigger**: `{meeting_id} done` or `{meeting_id} done --since YYYY-MM-DD`
-
-### Step 1: Fetch done items
-
-```bash
-API_SH="<api.sh path from Current State>"
-# Without date filter:
-RESPONSE=$("$API_SH" GET "/1-on-1/MEETING_ID/done?per_page=50")
-# With --since DATE filter:
-RESPONSE=$("$API_SH" GET "/1-on-1/MEETING_ID/done?since=DATE&per_page=50")
-echo "$RESPONSE"
-```
-
-### Step 2: Display done items
-
-Use same table format as single column view (ID, Name, Creator, Due).
-
-Header: `### Done ({count} items)` — or `### Done since {date} ({count} items)` if `--since` was provided.
-
-Archived items are excluded by the API by default. No client-side filtering needed.
-
----
-
-## Flow: Move Item
-
-**Trigger**: `{meeting_id} move {item_id} {column}`
-
-Column must be one of: `next`, `done`, `blocked`.
-
-### Step 1: Check current status
-
-Fetch the item to check its current status:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-Map the item's `status` to a column:
-- `next` → next
-- `done` → done
-- `blocked` → blocked
-
-If the item's current column matches the target → "Item {item_id} is already in {column}." and stop.
-
-### Step 2: Confirm and execute
-
-Map target column to API status:
-- `next` → `next`
-- `done` → `done`
-- `blocked` → `blocked`
-
-Describe the move:
-> Move item **{item_name}** (ID: {item_id}) from **{current_column}** to **{target_column}**?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/items/ITEM_ID" '{"status":"TARGET_STATUS"}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Moved **{item_name}** (ID: {item_id}) to **{target_column}**."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Add Item to One-on-One
-
-**Trigger**: `{meeting_id} add "text"` or `{meeting_id} add {item_id}`
-
-### Step 1: Determine if new or existing
-
-- If arg is a quoted string → create new item
-- If arg is a number → add existing item
-
-### Step 2 (new item): Confirm and execute
-
-Describe:
-> Add **"{text}"** to one-on-one {meeting_id}?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/1-on-1/MEETING_ID/items" '{"name":"TEXT"}')
-echo "$RESPONSE"
-```
-
-Optional body fields: `column` (`next`/`blocked`/`done`, default `next`) and `description` (HTML body) — include them in the JSON when the user provides them.
-
-- **Status 201**: "Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}."
-- **Error** → use Error Handling above
-
-### Step 2 (existing item): Fetch, confirm, and execute
-
-Fetch the item to confirm it exists:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-- If 404 → "Item {item_id} not found."
-
-Describe:
-> Add **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/1-on-1/MEETING_ID/align" '{"alignable_type":"Item","alignable_id":ITEM_ID}')
-echo "$RESPONSE"
-```
-
-- **Status 200**: "Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Remove Item
-
-**Trigger**: `{meeting_id} remove {item_id}`
-
-### Step 1: Confirm and execute
-
-Describe:
-> Remove item {item_id} from one-on-one {meeting_id}? (Item will still exist — only detached from this meeting.)
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/1-on-1/MEETING_ID/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-### Step 2: Handle response
-
-- **Status 200/204**: "Removed item {item_id} from one-on-one {meeting_id}."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Save Notes (Enhancement)
-
-**Trigger**: `{meeting_id} notes "text"`
-
-### Step 1: Validate input
-
-If notes text is empty or missing → "Please provide note content. Example: `/rkit:1on1 {id} notes \"Discussion about Q2 goals\"`" and stop.
-
-### Step 2: Confirm and execute
-
-Describe:
-> Save notes to one-on-one {meeting_id}? (This will overwrite any existing notes.)
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PUT "/1-on-1/MEETING_ID/notes" '{"notes":"TEXT"}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Notes saved to one-on-one {meeting_id}."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Add Comment to an Item
-
-**Trigger**: `{meeting_id} comment {item_id} "text"`
-
-Comments target the item directly (`/items/{id}/comments`), not the meeting — the `meeting_id` prefix is only this skill's own addressing convention, kept consistent with `move`/`add`/`remove`. A participant of this 1-on-1 can comment on an item shared to it even without ordinary view access to the item — the API grants that fallback specifically for 1:1 participants.
-
-### Step 1: Parse and validate
-
-Extract the item ID and comment text. If text is empty → "Comment text cannot be empty."
-
-### Step 2: Confirm and execute
-
-> Add comment to item **{item_id}** in one-on-one {meeting_id}:
-> "{text}"
->
-> Proceed?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body": "COMMENT_TEXT"}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in COMMENT_TEXT.
-
-### Step 3: Handle response
-
-- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to item **{item_id}**: "{body}"`
-- **Status 403** → "Not authorized to comment on this item."
-- **Status 404** → "Item {item_id} not found."
-- **Status 422** → "Comment text cannot be empty."
-- **Error** → use Error Handling above
-
----
+- **Move**: column must be one of `next`, `done`, `blocked`. Call `get_item` first for the name and `**Status**` (not found → "Item {item_id} not found."). Map the status to a column (`next` → next, `done` → done, `blocked` → blocked); if it already matches the target → "Item {item_id} is already in {column}." and stop. The item must already be on this meeting.
+- **Add**: a quoted string creates a new item, a number adds an existing one. For a new item pass `description` (HTML body) when the user provides one; a new item straight into the done column is a Fallback job. For an existing item call `get_item` first (not found → "Item {item_id} not found.").
+- **Notes**: empty or missing text → "Please provide note content. Example: `/rkit:1on1 {id} notes \"Discussion about Q2 goals\"`" and stop.
+- **Comment**: empty text → "Comment text cannot be empty." Comments target the item directly, not the meeting — the `meeting_id` prefix is only this skill's own addressing convention, kept consistent with `move`/`add`/`remove`. A participant of this 1-on-1 can comment on an item shared to it even without ordinary view access to the item — the connector grants that fallback specifically for 1:1 participants.
 
 ## Flow: List Comments on an Item
 
 **Trigger**: `{meeting_id} comments {item_id}`
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
-echo "$RESPONSE"
+Call `list_item_comments` (`todo_or_issue`). It answers JSON `{total, comments: [{id, body, author, created_at, updated_at}]}`. None → "No comments on item {item_id}." Otherwise display (strip HTML from `body`; author is `first_name last_name`, else `login`; Time from `created_at`):
+
+```
+| ID | Author | Comment | Time |
+|----|--------|---------|------|
+| 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
 ```
 
-- **Status 200**: Extract `body.data` array. If empty → "No comments on item {item_id}." If present, display:
+Append `(edited)` after the time when `updated_at` is later than `created_at`.
 
-  ```
-  | ID | Author | Comment | Time |
-  |----|--------|---------|------|
-  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
-  ```
+## Fallback (api.sh)
 
-  Append `(edited)` after the time when `updated_at` is later than `created_at`.
-- **Status 404** → "Item {item_id} not found."
-- **Error** → use Error Handling above
+The connector has no tool for these jobs, so they run as before: `RESPONSE=$("<api.sh path>" METHOD PATH [BODY])` returns `{status, body}`; escape double quotes in JSON bodies. Confirm writes first, as above.
 
----
+| Job | Call |
+|---|---|
+| Done items since a date (`done --since`; the connector's Done read returns raw rows with no creator name) | `GET /1-on-1/MEETING_ID/done?start_date=DATE&end_date=TODAY&per_page=50` (the window needs both dates); items in `body.data`, each with `creator`; `body.meta.total` |
+| New item straight into the done column | `POST /1-on-1/MEETING_ID/items` `{"name":"TEXT","column":"done"}` (+ `description`); 201 → "Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}." |
+| Edit my comment (`{meeting_id} edit comment {comment_id} "text"`; confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`) | `PATCH /comments/COMMENT_ID` `{"body": "NEW_TEXT"}`. 200 "Comment **{comment_id}** updated."; 403 "You can only edit your own comments."; 404 "Comment {comment_id} not found."; 422 "Comment text cannot be empty." |
+| Delete my comment (`{meeting_id} delete comment {comment_id}`; confirm `Delete comment **{comment_id}**? This cannot be undone.`) | `DELETE /comments/COMMENT_ID`. 200 "Comment **{comment_id}** deleted."; 403 "You can only delete your own comments (a team admin can also delete any comment on this item)."; 404 "Comment {comment_id} not found." |
 
-## Flow: Edit / Delete My Comment
+api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` first."; `CURL_FAILED` "Network error. Check your connection."; 401 "Unauthorized (401). Run `/rkit:setup` to update your token."; 404 "Not found (404)."; 422 show the validation error from the body; other non-200 show the status code and error from the body; path `NOT_FOUND` "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 
-**Trigger**: `{meeting_id} edit comment {comment_id} "text"` or `{meeting_id} delete comment {comment_id}`
+## Errors
 
-**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`, then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
-echo "$RESPONSE"
-```
-
-- **Status 200**: "Comment **{comment_id}** updated." · **403** → "You can only edit your own comments." · **404** → "Comment {comment_id} not found." · **422** → "Comment text cannot be empty."
-
-**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
-echo "$RESPONSE"
-```
-
-- **Status 200**: "Comment **{comment_id}** deleted." · **403** → "You can only delete your own comments (a team admin can also delete any comment on this item)." · **404** → "Comment {comment_id} not found."
-
----
-
-## Edge Cases
-
-- **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
-- **No one-on-ones** → "No one-on-ones found."
-- **Meeting not found (404)** → "Meeting {id} not found."
-- **All columns empty** → show all three column headers with "(empty)"
-- **All items in a column are archived** → that column shows "(empty)" after filtering; apply to all three columns independently
-- **Item already in target column (move)** → warn and skip
-- **Item not found (add existing)** → "Item {id} not found."
-- **Creator names empty** → fall back to `login` field
-- **Empty notes text** → warn and do not submit
-- **Empty comment text** → "Comment text cannot be empty."
-- **Comment not found (404)** → "Comment {id} not found."
-- **Edit/delete someone else's comment (403)** → "You can only edit/delete your own comments."
+| The tool answers | Say |
+|---|---|
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| "1-on-1 not found or you don't have access to it." | "Meeting {id} not found." |
+| "To-do or issue not found or you don't have access to it." | "Item {id} not found." (one sentence now covers the old 403 "Not authorized to comment on this item.") |
+| "Team not found or you don't have access to it." / "You don't have access to this team." | "Team {id} not found, or you don't have access to it." |
+| "A comment cannot be blank." | "Comment text cannot be empty." |
+| any other `Error: …` | Show it as returned. |
 
 ## References
 

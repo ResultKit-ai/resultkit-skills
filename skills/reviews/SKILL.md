@@ -7,10 +7,12 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQues
 
 # rkit:reviews
 
+Performance reviews, assessments, sign-off, core values and review templates. The ResultKit connector has no live tool for reviews, review templates, assessments or core values, so nothing here uses connector tools and every flow below is a **Fallback** that runs through `scripts/api.sh`. Do not look for a connector tool for these jobs.
+
 ## Current State
 
 - Config status: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/reviews/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/reviews/scripts/api.sh "$HOME/.claude/skills/rkit:reviews/scripts/api.sh" "$HOME/.agents/skills/reviews/scripts/api.sh" "$HOME/.gemini/skills/reviews/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/reviews/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/reviews/scripts/api.sh "$HOME/.claude/skills/rkit:reviews/scripts/api.sh" "$HOME/.agents/skills/reviews/scripts/api.sh" "$HOME/.gemini/skills/reviews/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
 
@@ -21,37 +23,29 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQues
 
 ## Error Handling
 
-Parse the JSON response from api.sh. Handle these cases:
+`RESPONSE=$("<api.sh path from Current State>" METHOD PATH [BODY])` returns `{status, body}`. Handle:
 
-- `"error": "NO_CONFIG"` or `"error": "NO_TOKEN"` → "Config not found. Run `/rkit:setup` first."
-- `"error": "CURL_FAILED"` → "Network error. Check your connection."
-- `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
-- `status: 400` on reviews list → If error contains "team_id": "Invalid team ID." Otherwise show the API's error message.
-- `status: 400` on template PATCH → If error message contains "owning organization": "Cannot change owning organization after creation." Otherwise show the API's error message.
-- `status: 422` on template POST/PATCH → If error message contains "not root teams": "Organization ID(s) must be root teams (no sub-teams)." Otherwise show validation error from response body.
-- `status: 404` on reviews list with `team_id` → "Team not found or not accessible."
-- `status: 403` → Review-specific messages:
-  - Sign-off actions: "You must be the reviewer to sign off."
-  - Template create/update/delete actions: "Admin on the owning team required."
-  - Create/void/archive actions: "Admin/people-ops permissions required."
-  - Assessment actions: Show the API's error message.
-- `status: 404` → "Not found (404)."
-- `status: 422` → Show validation error from response body.
-- Other non-200 → Show status code and error from response body.
+| Answer | Say |
+|---|---|
+| `error: NO_CONFIG` or `NO_TOKEN` | "Config not found. Run `/rkit:setup` first." |
+| `error: CURL_FAILED` | "Network error. Check your connection." |
+| 401 | "Unauthorized (401). Run `/rkit:setup` to update your token." |
+| 400 on reviews list | Error contains "team_id": "Invalid team ID." Otherwise the API's message. |
+| 400 on template PATCH | Message contains "owning organization": "Cannot change owning organization after creation." Otherwise the API's message. |
+| 422 on template POST/PATCH | Message contains "not root teams": "Organization ID(s) must be root teams (no sub-teams)." Otherwise the validation error from the body. |
+| 404 on reviews list with `team_id` | "Team not found or not accessible." |
+| 403 | Sign-off: "You must be the reviewer to sign off." Template create/update/delete: "Admin on the owning team required." Create/void/archive: "Admin/people-ops permissions required." Assessment actions: the API's message. |
+| 404 | "Not found (404)." |
+| 422 | The validation error from the body. |
+| other non-200 | The status code and the error from the body. |
 
----
+A flow's own 403 message (below) wins over this table.
 
 ## Team ID Resolution
 
-1. **`--team {id}` flag** in args → use that team ID
-2. **`default_team_id` in config** → use that
-3. **Neither** → no team filter applied
-
----
+`--team {id}` flag, else `default_team_id` from the config above, else no team filter.
 
 ## Argument Parsing
-
-Parse the user input to determine which flow to follow:
 
 | Input | Flow |
 |-------|------|
@@ -75,30 +69,13 @@ Parse the user input to determine which flow to follow:
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
 
----
+## Fallback (api.sh)
 
-## Flow: List Reviews
+Every flow below is Fallback. "Confirm" means: show the summary and wait for the user's go-ahead before the write.
 
-**Trigger**: No args (or only `--team {id}`)
+### List Reviews — no args (or only `--team {id}`)
 
-### Step 1: Fetch reviews
-
-Resolve TEAM_ID using Team ID Resolution above. If a team ID is available, pass `team_id` to filter reviews by organization.
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEAM_ID="<team ID from Team ID Resolution, or empty>"
-if [ -n "$TEAM_ID" ]; then
-  RESPONSE=$("$API_SH" GET "/reviews?per_page=50&team_id=$TEAM_ID")
-else
-  RESPONSE=$("$API_SH" GET "/reviews?per_page=50")
-fi
-echo "$RESPONSE"
-```
-
-### Step 2: Display reviews
-
-Display as a table:
+`GET /reviews?per_page=50`, adding `&team_id=TEAM_ID` when a team ID resolves.
 
 ```
 ## Reviews
@@ -111,30 +88,11 @@ Display as a table:
 {count} reviews
 ```
 
-**Display rules**:
-- `Reviewee` / `Reviewer`: show `first_name last_name`; fall back to `login` if names are empty.
-- `Period`: show `start_date – end_date`; show "—" for either date if null.
-- Sort by API default order.
+Reviewee/Reviewer: `first_name last_name`, falling back to `login` when names are empty. Period: `start_date – end_date`, "—" for a null date. API default order. Empty: "No reviews found."
 
-**Empty result**: "No reviews found."
+### View Review Detail — `{id}` or `show {id}`
 
----
-
-## Flow: View Review Detail
-
-**Trigger**: `{id}` or `show {id}`
-
-### Step 1: Fetch review detail
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-### Step 2: Display review
-
-Display format:
+`GET /reviews/REVIEW_ID`.
 
 ```
 ## Review #42: Jane Doe ← John Smith
@@ -176,81 +134,18 @@ Status: Submitted
 - performance-summary.pdf
 ```
 
-**Display rules**:
-- Header: `Review #{id}: {reviewee_name} ← {reviewer_name}` — use `first_name last_name`; fall back to `login`.
-- Template: show `name (ID: {id})` or "None" if null.
-- Period: `start_date – end_date`; "—" for null dates.
-- **Self Assessment**: Show `responses` array as table. Each row: prompt number, `description`, `response_value` (or "—"), `score` (or "—"). Show `is_draft` as "Status: Draft" or "Status: Submitted". Show "(none)" if `self_assessment` is null.
-- **Reviewer Assessment**: Same format. Show "(none)" if `reviewer_assessment` is null. Note: API omits this field for reviewees until review reaches `signed_off` status.
-- **Core Values Ratings**: Table with value name, score, rater name. Show "(none)" if empty.
-- **Action Items**: Table with ID, title, assignee name. Show "(none)" if empty.
-- **Attachments**: Bulleted list of filenames. Show "(none)" if empty.
+- Header `Review #{id}: {reviewee_name} ← {reviewer_name}`: `first_name last_name`, `login` if empty. Template: `name (ID: {id})`, or "None" if null. Period: `start_date – end_date`, "—" for null dates.
+- **Self Assessment**: the `responses` array as a table, one row per prompt: number, `description`, `response_value` (or "—"), `score` (or "—"). `is_draft` shows "Status: Draft" or "Status: Submitted". "(none)" if `self_assessment` is null.
+- **Reviewer Assessment**: same format; "(none)" if null. The API omits this field for reviewees until the review reaches `signed_off`.
+- **Core Values Ratings**: value name, score, rater name; "(none)" if empty. **Action Items**: ID, title, assignee name; "(none)" if empty. **Attachments**: bulleted filenames; "(none)" if empty.
 
----
+### Assess Review — `{id} assess`
 
-## Flow: Assess Review
-
-**Trigger**: `{id} assess`
-
-### Step 1: Fetch review and validate
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-Check the `status` field. If not `in_progress` → "Review must be in progress to assess. Current status: {status}." and stop.
-
-### Step 2: Determine respondent type
-
-Ask the user via AskUserQuestion: "Are you the reviewee (self-assessment) or the reviewer?"
-
-Options:
-- **Self-assessment** (reviewee) → `respondent_type = "self"`
-- **Reviewer assessment** → `respondent_type = "reviewer"`
-
-If `respondent_type` is "reviewer" and the template has `reviewer_instructions`, display them before starting prompts.
-
-### Step 3: Fetch template and walk through prompts
-
-**If the review has a template** (`template` is not null):
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEMPLATE=$("$API_SH" GET "/review-templates/TEMPLATE_ID")
-echo "$TEMPLATE"
-```
-
-Walk through each prompt in `prompts` array (ordered by `position`). For each prompt, use AskUserQuestion with the input method matching `answer_type`:
-
-| Answer Type | Input Method |
-|-------------|-------------|
-| `range` | AskUserQuestion with numeric options derived from `answer_meta_data` (e.g., 1–5). Record as `score`. |
-| `text` | AskUserQuestion with free-form short answer. Record as `response_value`. |
-| `textarea` | AskUserQuestion with free-form answer. Record as `response_value`. |
-| `boolean` | AskUserQuestion with Yes (score: 1) / No (score: 0). Record as `score`. |
-| `multiple` | AskUserQuestion with options from `answer_meta_data`. Record as `response_value`. |
-
-For each prompt, show: `[{position}/{total}] {description}` and the `hint` if present.
-
-**If the review has no template** (`template` is null):
-
-Prompt the user for a single free-form text response via AskUserQuestion: "Enter your assessment response."
-
-### Step 4: Optional core values ratings
-
-```bash
-API_SH="<api.sh path from Current State>"
-VALUES=$("$API_SH" GET "/teams/TEAM_ID/core-values")
-echo "$VALUES"
-```
-
-Use TEAM_ID from Team ID Resolution above. If core values exist, ask: "Would you like to include core values ratings?" If yes, for each core value, prompt for a score (1–5) and an optional justification (text comment, up to 5000 chars, or leave blank) via AskUserQuestion. The `core_value_id` in the request body must be the label `id` returned by this endpoint.
-
-### Step 5: Confirm and submit
-
-Show a summary of all responses:
+1. `GET /reviews/REVIEW_ID`. `status` not `in_progress` → "Review must be in progress to assess. Current status: {status}." and stop.
+2. Ask with AskUserQuestion: "Are you the reviewee (self-assessment) or the reviewer?" — **Self-assessment** → `respondent_type = "self"`; **Reviewer assessment** → `"reviewer"`. A reviewer whose template has `reviewer_instructions` sees them before the prompts.
+3. Template (`template` not null): `GET /review-templates/TEMPLATE_ID`, then walk `prompts` ordered by `position`, showing `[{position}/{total}] {description}` and the `hint` if present, one AskUserQuestion per prompt by `answer_type`: `range` → numeric options from `answer_meta_data` (e.g. 1–5), record as `score`; `text` → free-form short answer and `textarea` → free-form answer, record as `response_value`; `boolean` → Yes (score 1) / No (score 0), record as `score`; `multiple` → options from `answer_meta_data`, record as `response_value`. No template: ask one free-form "Enter your assessment response."
+4. Core values: `GET /teams/TEAM_ID/core-values` (team from Team ID Resolution). If any exist, ask "Would you like to include core values ratings?" Yes → per value, a score (1–5) and an optional justification (text up to 5000 characters, or blank) via AskUserQuestion. `core_value_id` in the body must be the label `id` this endpoint returns.
+5. Confirm with this summary, then `POST /reviews/REVIEW_ID/submit-assessment`:
 
 ```
 ## Assessment Summary (Review #{id})
@@ -262,47 +157,13 @@ Show a summary of all responses:
 Submit this assessment?
 ```
 
-Wait for confirmation. Then build the request body:
+Body: `{"respondent_type":"self","assessment_responses":[{"prompt_id":10,"response_value":"Led the migration project."},{"prompt_id":11,"score":4}],"core_values_ratings":[{"core_value_id":3,"score":4,"justification":"Strong teamwork on Q4 launch"}]}` — `justification` only when the user gave one (omit or null if blank).
 
-```json
-{
-  "respondent_type": "self",
-  "assessment_responses": [
-    {"prompt_id": 10, "response_value": "Led the migration project."},
-    {"prompt_id": 11, "score": 4}
-  ],
-  "core_values_ratings": [
-    {"core_value_id": 3, "score": 4, "justification": "Strong teamwork on Q4 launch"}
-  ]
-}
-```
+6. 200 → "Assessment submitted for review #{id}." When both assessments are now submitted the review moves to `assessed`: say so. Errors → Error Handling.
 
-Include `justification` only if the user provided one (omit or set to null if blank).
+### Draft Assessment — `{id} draft`
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/reviews/REVIEW_ID/submit-assessment" 'REQUEST_BODY')
-echo "$RESPONSE"
-```
-
-### Step 6: Handle response
-
-- **Status 200**: "Assessment submitted for review #{id}." If both assessments are now submitted, the review transitions to `assessed` status — note this in output.
-- **Error** → use Error Handling above
-
----
-
-## Flow: Draft Assessment
-
-**Trigger**: `{id} draft`
-
-This flow is identical to **Assess Review** (Steps 1–4) with these differences:
-
-- **Step 1**: Same — fetch review, validate `in_progress` status.
-- **Step 2**: Same — determine respondent type.
-- **Step 3**: Same — walk through template prompts. **Additionally**: if an existing draft exists (check `self_assessment.is_draft == true` or `reviewer_assessment.is_draft == true` for the matching respondent type), show existing `response_value` / `score` as defaults for each prompt.
-- **Step 4**: Same — optional core values.
-- **Step 5**: Change summary message and API call:
+Assess Review steps 1–4, with one addition in step 3: when a draft already exists for the matching respondent type (`self_assessment.is_draft == true` or `reviewer_assessment.is_draft == true`), show its `response_value` / `score` as the default for each prompt. Step 5 confirm:
 
 ```
 ## Draft Assessment Summary (Review #{id})
@@ -314,91 +175,22 @@ This flow is identical to **Assess Review** (Steps 1–4) with these differences
 Save as draft? (This does NOT advance the review state.)
 ```
 
-Wait for confirmation. Then:
+Then `PUT /reviews/REVIEW_ID/draft-assessment` with the same body. 200 → "Draft saved for review #{id}. Use `/rkit:reviews {id} assess` to submit when ready."
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PUT "/reviews/REVIEW_ID/draft-assessment" 'REQUEST_BODY')
-echo "$RESPONSE"
-```
+### Sign Off Review — `{id} sign-off`
 
-- **Step 6**: "Draft saved for review #{id}. Use `/rkit:reviews {id} assess` to submit when ready."
-- **Error** → use Error Handling above
+`GET /reviews/REVIEW_ID`. `status` not `assessed` → "Review must be in assessed status to sign off. Current status: {status}." and stop. Show "Review #{id}: {reviewee_name} ← {reviewer_name} (Status: assessed)". Ask for initials with AskUserQuestion: "Enter your initials to sign off (e.g., JS):". Confirm: > Sign off review #{id} with initials "{initials}"? Then `POST /reviews/REVIEW_ID/sign-off` `{"initials":"INITIALS"}`. 200 → "Review #{id} signed off. Status: signed_off." 403 → "You must be the reviewer to sign off."
 
----
+### Create Review — `create`
 
-## Flow: Sign Off Review
-
-**Trigger**: `{id} sign-off`
-
-### Step 1: Fetch review and validate
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-Check the `status` field. If not `assessed` → "Review must be in assessed status to sign off. Current status: {status}." and stop.
-
-### Step 2: Collect initials and confirm
-
-Show review summary: "Review #{id}: {reviewee_name} ← {reviewer_name} (Status: assessed)"
-
-Prompt for initials via AskUserQuestion: "Enter your initials to sign off (e.g., JS):"
-
-Confirm:
-> Sign off review #{id} with initials "{initials}"?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/reviews/REVIEW_ID/sign-off" '{"initials":"INITIALS"}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Review #{id} signed off. Status: signed_off."
-- **Status 403** → "You must be the reviewer to sign off."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Create Review
-
-**Trigger**: `create`
-
-### Step 1: Collect review details
-
-Prompt for each field via AskUserQuestion:
-
-1. **Reviewee user ID**: "Enter the reviewee's user ID:"
-2. **Reviewer user ID**: "Enter the reviewer's user ID:"
-3. **Template selection**: Fetch available templates:
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEMPLATES=$("$API_SH" GET "/review-templates?per_page=50")
-echo "$TEMPLATES"
-```
-
-Display template table:
+Ask with AskUserQuestion, one at a time: "Enter the reviewee's user ID:", "Enter the reviewer's user ID:"; then `GET /review-templates?per_page=50` and show
 
 | ID | Name | Prompts | Owning Team |
 |----|------|---------|-------------|
 | 5 | Q1 2026 Review | 8 | Engineering |
 | 3 | Annual Review | 12 | — |
 
-Display `owning_organization.name` for each template, or "—" if `owning_organization` is null.
-
-Prompt: "Select a template ID:"
-
-4. **Start date** (optional): "Enter start date (YYYY-MM-DD) or leave blank:"
-5. **End date** (optional): "Enter end date (YYYY-MM-DD) or leave blank:"
-
-### Step 2: Confirm and create
+(`owning_organization.name`, or "—" if null), ask "Select a template ID:", then "Enter start date (YYYY-MM-DD) or leave blank:" and "Enter end date (YYYY-MM-DD) or leave blank:". Confirm:
 
 ```
 Create review?
@@ -408,111 +200,19 @@ Create review?
 - Period: {start_date} – {end_date}
 ```
 
-Wait for confirmation. Then:
+Then `POST /reviews` `{"reviewee_id":ID,"reviewer_id":ID,"template_id":ID,"start_date":"DATE","end_date":"DATE"}`. 201 → "Review #{id} created. Status: in_progress." 400 containing "is not a member of any team" → "Reviewee or reviewer must be a member of at least one team in this account." (otherwise the API's message). 403 → "Admin/people-ops permissions required."
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/reviews" '{"reviewee_id":ID,"reviewer_id":ID,"template_id":ID,"start_date":"DATE","end_date":"DATE"}')
-echo "$RESPONSE"
-```
+### Void Review — `{id} void`
 
-### Step 3: Handle response
+`GET /reviews/REVIEW_ID`; show "Review #{id}: {reviewee_name} ← {reviewer_name} (Status: {status})". Ask for the reason: "Enter reason for voiding this review:". Confirm: > Void review #{id}? Reason: "{reason}" — This blocks all further lifecycle actions. Then `PUT /reviews/REVIEW_ID/void` `{"reason":"REASON"}`. 200 → "Review #{id} voided." 403 → "Admin/people-ops permissions required."
 
-- **Status 201**: "Review #{id} created. Status: in_progress."
-- **Status 400** → If error contains "is not a member of any team": "Reviewee or reviewer must be a member of at least one team in this account." Otherwise show the API's error message.
-- **Status 403** → "Admin/people-ops permissions required."
-- **Error** → use Error Handling above
+### Archive Review — `{id} archive`
 
----
+`GET /reviews/REVIEW_ID`; show the same status line. Confirm: > Archive review #{id}? This removes it from the default review list. Then `DELETE /reviews/REVIEW_ID`. 200/204 → "Review #{id} archived." 403 → "Admin/people-ops permissions required."
 
-## Flow: Void Review
+### List Core Values — `values`
 
-**Trigger**: `{id} void`
-
-### Step 1: Fetch review
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-Show: "Review #{id}: {reviewee_name} ← {reviewer_name} (Status: {status})"
-
-### Step 2: Collect reason and confirm
-
-Prompt for reason via AskUserQuestion: "Enter reason for voiding this review:"
-
-Confirm:
-> Void review #{id}? Reason: "{reason}" — This blocks all further lifecycle actions.
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PUT "/reviews/REVIEW_ID/void" '{"reason":"REASON"}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Review #{id} voided."
-- **Status 403** → "Admin/people-ops permissions required."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Archive Review
-
-**Trigger**: `{id} archive`
-
-### Step 1: Fetch review
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-Show: "Review #{id}: {reviewee_name} ← {reviewer_name} (Status: {status})"
-
-### Step 2: Confirm and archive
-
-> Archive review #{id}? This removes it from the default review list.
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/reviews/REVIEW_ID")
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200/204**: "Review #{id} archived."
-- **Status 403** → "Admin/people-ops permissions required."
-- **Error** → use Error Handling above
-
----
-
-## Flow: List Core Values
-
-**Trigger**: `values`
-
-### Step 1: Fetch core values
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/core-values")
-echo "$RESPONSE"
-```
-
-Use TEAM_ID from Team ID Resolution above.
-
-### Step 2: Display core values
-
-Display as a table:
+`GET /teams/TEAM_ID/core-values`.
 
 ```
 ## Core Values
@@ -525,35 +225,11 @@ Display as a table:
 {count} core values
 ```
 
-**Empty result**: "No core values defined for your organization."
+Empty: "No core values defined for your organization."
 
----
+### Rate Core Values — `rate {user_id}`
 
-## Flow: Rate Core Values
-
-**Trigger**: `rate {user_id}`
-
-### Step 1: Fetch core values
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/core-values")
-echo "$RESPONSE"
-```
-
-Use TEAM_ID from Team ID Resolution above.
-
-If empty → "No core values defined for your organization. Nothing to rate." and stop.
-
-### Step 2: Collect ratings
-
-For each core value, prompt via AskUserQuestion: "Rate **{value_name}** (1–5):"
-
-Options: 1, 2, 3, 4, 5
-
-### Step 3: Confirm and submit
-
-Show summary:
+`GET /teams/TEAM_ID/core-values`; empty → "No core values defined for your organization. Nothing to rate." and stop. For each value ask "Rate **{value_name}** (1–5):" with options 1, 2, 3, 4, 5. Confirm:
 
 ```
 ## Core Values Ratings for User #{user_id}
@@ -566,46 +242,11 @@ Show summary:
 Submit these ratings?
 ```
 
-Wait for confirmation. Then build the request body:
+Then `POST /core-values-ratings` `{"subject_id":USER_ID,"ratings":[{"core_value_id":3,"score":4},{"core_value_id":7,"score":5}]}`. 201 → "Core values ratings submitted for user #{user_id}."
 
-```json
-{
-  "subject_id": USER_ID,
-  "ratings": [
-    {"core_value_id": 3, "score": 4},
-    {"core_value_id": 7, "score": 5}
-  ]
-}
-```
+### List Templates — `templates` or `templates list`
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/core-values-ratings" 'REQUEST_BODY')
-echo "$RESPONSE"
-```
-
-### Step 4: Handle response
-
-- **Status 201**: "Core values ratings submitted for user #{user_id}."
-- **Error** → use Error Handling above
-
----
-
-## Flow: List Templates
-
-**Trigger**: `templates` or `templates list`
-
-### Step 1: Fetch templates
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/review-templates?per_page=50")
-echo "$RESPONSE"
-```
-
-### Step 2: Display templates
-
-Display as a table:
+`GET /review-templates?per_page=50`.
 
 ```
 ## Review Templates
@@ -618,29 +259,11 @@ Display as a table:
 {count} templates
 ```
 
-**Display rules**:
-- `Owning Organization`: show `owning_organization.name`; show "—" if `owning_organization` is null.
+`owning_organization.name`, "—" if null. Empty: "No templates found." Archived templates are excluded; use `templates {id}` (detail fetch) to view an archived one by ID.
 
-**Empty result**: "No templates found."
+### Create Template — `templates create`
 
-**Note**: Archived templates are excluded from this list. Use `templates {id}` (detail fetch) to view an archived template by ID.
-
----
-
-## Flow: Create Template
-
-**Trigger**: `templates create`
-
-### Step 1: Collect template details
-
-Prompt for each field via AskUserQuestion:
-
-1. **Name** (required): "Enter template name:"
-2. **Target role** (optional): "Enter target role (or leave blank to omit):"
-3. **Reviewer instructions** (optional): "Enter reviewer instructions (or leave blank to omit):"
-4. **Owning organization ID** (optional): "Enter owning organization ID (must be a root team — or leave blank to use API default):"
-
-### Step 2: Confirm and create
+Ask with AskUserQuestion: "Enter template name:" (required), "Enter target role (or leave blank to omit):", "Enter reviewer instructions (or leave blank to omit):", "Enter owning organization ID (must be a root team — or leave blank to use API default):". Confirm:
 
 ```
 Create template?
@@ -650,17 +273,7 @@ Create template?
 - Owning organization ID: {owning_organization_id | "API default"}
 ```
 
-Wait for confirmation. Build request body with only provided fields (omit blank optional fields). Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/review-templates" 'REQUEST_BODY')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 201**: Display template detail:
+Then `POST /review-templates` with only the provided fields. 201 → show the template block below with the heading `## Template #{id} created`. 403 → "Admin on the owning organization required."
 
 ```
 ## Template #{id} created
@@ -670,24 +283,9 @@ echo "$RESPONSE"
 **Shared With**: {shared_with_organizations names joined by ", " | "None"}
 ```
 
-- **Status 403** → "Admin on the owning organization required."
-- **Error** → use Error Handling above
+### Update Template — `templates {id} update`
 
----
-
-## Flow: Update Template
-
-**Trigger**: `templates {id} update`
-
-### Step 1: Fetch current template
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/review-templates/TEMPLATE_ID")
-echo "$RESPONSE"
-```
-
-Show current values:
+`GET /review-templates/TEMPLATE_ID` and show the current values:
 
 ```
 ## Template #{id}: {name}
@@ -698,195 +296,29 @@ Show current values:
 **Reviewer Instructions**: {reviewer_instructions | "—"}
 ```
 
-### Step 2: Collect updates
+Ask with AskUserQuestion, showing each current value (blank = keep): "New name (or leave blank to keep):", "New target role (or leave blank to keep):", "New reviewer instructions (or leave blank to keep):", "Organization IDs to share with, comma-separated (must be root teams — enter 'none' to remove all sharing, or leave blank to keep unchanged):". Sharing: `none` → `"shared_with_organization_ids": []`; blank → omit it; IDs → `[id1, id2, ...]`. Confirm the changes, then `PATCH /review-templates/TEMPLATE_ID` with only the changed fields. 200 → the same block with the heading `## Template #{id} updated`. 400 → Error Handling (400 on template PATCH); a request naming `owning_team_id` → "Cannot change owning team after creation." 403 → "Admin on the owning organization required."
 
-Prompt for each field via AskUserQuestion (show current value as context; blank = keep unchanged):
+### Delete Template — `templates {id} delete`
 
-1. **Name** (current: "{name}"): "New name (or leave blank to keep):"
-2. **Target role** (current: "{target_role | "—"}"): "New target role (or leave blank to keep):"
-3. **Reviewer instructions** (current: "{reviewer_instructions | "—"}"): "New reviewer instructions (or leave blank to keep):"
-4. **Share with organization IDs**: "Organization IDs to share with, comma-separated (must be root teams — enter 'none' to remove all sharing, or leave blank to keep unchanged):"
+`GET /review-templates/TEMPLATE_ID`; show `Template #{id}: {name}` and `Owning Team: {owning_team.name | "—"}`. Confirm: > Delete template #{id} "{name}" (Owning team: {owning_team.name | "—"})? This is permanent. Then `DELETE /review-templates/TEMPLATE_ID`. 200/204 → "Template #{id} deleted." 403 → "Admin on the owning team required."
 
-Sharing input logic:
-- `none` → send `"shared_with_organization_ids": []`
-- blank → omit `shared_with_organization_ids` from request body
-- comma-separated IDs → send `"shared_with_organization_ids": [id1, id2, ...]`
+### Archive / Unarchive Template — `templates {id} archive`, `templates {id} unarchive` or `restore`
 
-### Step 3: Confirm and update
+`GET /review-templates/TEMPLATE_ID`; show `Template #{id}: {name}`, `Owning Organization: {owning_organization.name | "—"}`, `Archived: {archived}` (a missing `archived` field counts as not archived).
 
-Show summary of changes. Wait for confirmation. Build request body with only changed fields. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/review-templates/TEMPLATE_ID" 'REQUEST_BODY')
-echo "$RESPONSE"
-```
-
-### Step 4: Handle response
-
-- **Status 200**: Display updated template detail:
-
-```
-## Template #{id} updated
-
-**Name**: {name} | **ID**: {id}
-**Owning Organization**: {owning_organization.name | "—"} (ID: {owning_organization.id | "—"})
-**Shared With**: {shared_with_organizations names joined by ", " | "None"}
-```
-
-- **Status 400** → use Error Handling above (400 on template PATCH)
-- **Status 403** → "Admin on the owning organization required."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Delete Template
-
-**Trigger**: `templates {id} delete`
-
-### Step 1: Fetch template
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/review-templates/TEMPLATE_ID")
-echo "$RESPONSE"
-```
-
-Show:
-
-```
-Template #{id}: {name}
-Owning Team: {owning_team.name | "—"}
-```
-
-### Step 2: Confirm and delete
-
-> Delete template #{id} "{name}" (Owning team: {owning_team.name | "—"})? This is permanent.
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/review-templates/TEMPLATE_ID")
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200/204**: "Template #{id} deleted."
-- **Status 403** → "Admin on the owning team required."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Archive Template
-
-**Trigger**: `templates {id} archive`
-
-### Step 1: Fetch template
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/review-templates/TEMPLATE_ID")
-echo "$RESPONSE"
-```
-
-Show:
-
-```
-Template #{id}: {name}
-Owning Organization: {owning_organization.name | "—"}
-Archived: {archived}
-```
-
-If already archived (`archived == true`), report "Template #{id} is already archived." and stop.
-
-### Step 2: Confirm and archive
-
-> Archive template #{id} "{name}"? It will be hidden from the template list but can still be accessed by ID.
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/review-templates/TEMPLATE_ID" '{"archived":true}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Template #{id} archived. It no longer appears in the template list."
-- **Status 403** → "Admin on the owning organization required."
-- **Error** → use Error Handling above
-
----
-
-## Flow: Unarchive Template
-
-**Trigger**: `templates {id} unarchive` or `templates {id} restore`
-
-### Step 1: Fetch template
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/review-templates/TEMPLATE_ID")
-echo "$RESPONSE"
-```
-
-Show:
-
-```
-Template #{id}: {name}
-Owning Organization: {owning_organization.name | "—"}
-Archived: {archived}
-```
-
-If not archived (`archived == false`), report "Template #{id} is not archived." and stop.
-
-### Step 2: Confirm and unarchive
-
-> Restore template #{id} "{name}"? It will reappear in the template list.
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/review-templates/TEMPLATE_ID" '{"archived":false}')
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Template #{id} restored. It now appears in the template list."
-- **Status 403** → "Admin on the owning organization required."
-- **Error** → use Error Handling above
-
----
+- **Archive**: already archived → "Template #{id} is already archived." and stop. Confirm: > Archive template #{id} "{name}"? It will be hidden from the template list but can still be accessed by ID. Then `PATCH /review-templates/TEMPLATE_ID` `{"archived":true}`. 200 → "Template #{id} archived. It no longer appears in the template list."
+- **Unarchive**: not archived → "Template #{id} is not archived." and stop. Confirm: > Restore template #{id} "{name}"? It will reappear in the template list. Then `PATCH /review-templates/TEMPLATE_ID` `{"archived":false}`. 200 → "Template #{id} restored. It now appears in the template list."
+- 403 (both) → "Admin on the owning organization required."
 
 ## Edge Cases
 
 - **No config** → "Config not found. Run `/rkit:setup` first."
 - **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
-- **No reviews** → "No reviews found."
 - **Review not found (404)** → "Review {id} not found."
-- **No template on review** → In assess/draft flow, skip template prompt walk-through; collect a single free-form response instead.
-- **Existing draft** → In draft flow, pre-populate existing `response_value` / `score` as defaults when re-prompting.
-- **Assess when not in_progress** → "Review must be in progress to assess. Current status: {status}."
-- **Sign off when not assessed** → "Review must be in assessed status to sign off. Current status: {status}."
-- **Void already-voided** → Show the API's error response.
-- **Archive already-archived** → Show the API's error response.
-- **Archive already-archived template** → Detect via `archived == true` in prefetch; report "Template #{id} is already archived." and stop.
-- **Unarchive non-archived template** → Detect via `archived == false` in prefetch; report "Template #{id} is not archived." and stop.
-- **Template `archived` field missing** → Treat as not archived (API default).
-- **Non-reviewer signs off** → "You must be the reviewer to sign off."
-- **Non-admin creates/voids/archives** → "Admin/people-ops permissions required."
-- **No core values defined** → "No core values defined for your organization."
-- **Names empty** → Fall back to `login` field for all user name displays.
-- **Template `owning_team` is null** → Display "—" in all template listings and detail views; no error.
-- **Template `shared_with_teams` is empty** → Display "None" in template detail views.
-- **PATCH template with `owning_team_id`** → API returns 400; display "Cannot change owning team after creation."
-- **Non-admin on owning team attempts template create/update/delete** → "Admin on the owning team required."
+- **No template on a review** → in assess/draft, skip the prompt walk-through and collect one free-form response. **Existing draft** → pre-populate `response_value` / `score` as defaults.
+- **Void already-voided, archive already-archived review** → show the API's error response.
+- **Names empty** → fall back to `login` for every user name. **Template `owning_team` null** → "—"; **`shared_with_teams` empty** → "None".
 
 ## References
 
-- [ResultMaps V2 API Reference](references/api-reference.md)
+- [ResultMaps V2 API Reference](references/api-reference.md) — payloads for these calls.

@@ -7,21 +7,21 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Gre
 
 # rkit:today
 
-A single skill that handles all day plan operations by interpreting user intent against a tool routing table.
+A single skill that handles all day plan operations by interpreting user intent against a tool routing table. It drives the ResultKit connector's MCP tools; `scripts/api.sh` is used only for the jobs under **Fallback**.
 
 ## Current State
 
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/today/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/today/scripts/api.sh "$HOME/.claude/skills/rkit:today/scripts/api.sh" "$HOME/.agents/skills/today/scripts/api.sh" "$HOME/.gemini/skills/today/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 - Today: !`date +%Y-%m-%d`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/today/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/today/scripts/api.sh "$HOME/.claude/skills/rkit:today/scripts/api.sh" "$HOME/.agents/skills/today/scripts/api.sh" "$HOME/.gemini/skills/today/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
 
-- **Interpret first, act second.** Read the user's message. Match it against the Tool Routing Table below. Pick the best match. If ambiguous, ask.
-- **Confirm writes.** GET requests execute immediately. POST/PUT/PATCH/DELETE: summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
-- **Show IDs.** Always include item IDs in output.
+- **Interpret first, act second.** Match the user's message against the routing table below. Pick the best match. If ambiguous, ask: "Did you mean to [option A] or [option B]?"
+- **Confirm writes.** Reads execute immediately. For writes, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation.
 - **Concise output.** Tables and short summaries. No filler.
-- **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
+- **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
+- **Date argument.** For today, omit `date` (today's plan is created on demand and recurring to-dos are filled in). Pass `date` as `YYYY-MM-DD` only for another day — never today's date.
+- **IDs.** `sequence` returns no IDs, so views have no ID column. If the user asks for IDs, or names an item without giving its ID, use the Fallback plan read.
 
 ---
 
@@ -31,431 +31,83 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 | Triggers | Intent | Tool/Flow |
 |---|---|---|
-| "show my day", "what's on today", "daily plan", "day plan", "what do I have today", "show today", "my plan", "today's items", "what's planned", "show {date}", "prioritizer", "tasks for today", "show must items", "show priority only", "hide done", "hide completed", "hide deferred", "not deferred and completed", "must priority only" | View day plan items with completion status | `get_day_plan` |
-| "add to today", "create a task", "new item", "add to my plan", "add to plan", "plan this for", "add to tomorrow", "put on my day", "add a to-do", "create to-do" | Create a new item on a day plan | `create_new_item` |
-| "attach to today", "put {id} on today", "add item {id}", "attach {id}", "move {id} to today", "add existing", "put {id} on my plan" | Attach an existing item to a day plan by ID | `attach_existing_item` |
-| "mark done", "check off", "complete", "finish {id}", "done {id}", "mark done for today", "complete for today" | Mark a day plan item as complete | `mark_item_complete` |
-| "undo {id}", "uncheck", "mark incomplete", "uncomplete" | Undo a completed day plan item | `mark_item_incomplete` |
-| "remove from today", "take off my plan", "remove {id}", "don't need this today", "skip this", "drop from plan", "remove from tomorrow" | Remove an item from a day plan | `remove_from_day_plan` |
-| "comment on {id}", "add a comment to {id}", "leave a note on {id}", "leave a note on that to-do" | Add a comment to an item | `add_comment_on_item` |
-| "show comments on {id}", "what did people say on {id}", "read the notes on {id}" | List comments on an item | `list_comments_on_item` |
-| "edit comment {comment_id}", "update comment {comment_id}", "fix my comment {comment_id}" | Edit my comment | `edit_comment` |
-| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | `delete_comment` |
+| "show must items", "show priority only", "must priority only", "hide deferred", "not deferred and completed" | View a filtered plan | Fallback: filtered plan |
+| "show my day", "what's on today", "daily plan", "day plan", "what do I have today", "show today", "my plan", "today's items", "what's planned", "show {date}", "prioritizer", "tasks for today", "hide done", "hide completed" | View day plan items with completion status | `sequence` |
+| "add to today", "create a task", "new item", "add to my plan", "add to plan", "plan this for", "add to tomorrow", "put on my day", "add a to-do", "create to-do" | Create a new item on a day plan | `add_to_work_plan` |
+| "attach to today", "put {id} on today", "add item {id}", "attach {id}", "move {id} to today", "add existing", "put {id} on my plan" | Attach an existing item to a day plan by ID | `attach_to_work_plan` |
+| "mark done for today", "complete for today" | Check off one day's entry only | Fallback: one-day check-off |
+| "mark done", "check off", "complete", "finish {id}", "done {id}" | Mark an item complete | `mark_done` |
+| "undo {id}", "uncheck", "mark incomplete", "uncomplete" | Undo a completed item | `update_item` |
+| "remove from today", "take off my plan", "remove {id}", "don't need this today", "skip this", "drop from plan", "remove from tomorrow" | Remove an item from a day plan | `remove_from_work_plan` |
+| "comment on {id}", "add a comment to {id}", "leave a note on {id}", "leave a note on that to-do" | Add a comment to an item | `add_item_comment` |
+| "show comments on {id}", "what did people say on {id}", "read the notes on {id}" | List comments on an item | `list_item_comments` |
+| "edit comment {comment_id}", "update comment {comment_id}", "fix my comment {comment_id}" | Edit my comment | Fallback: edit comment |
+| "delete comment {comment_id}", "remove comment {comment_id}" | Delete my comment | Fallback: delete comment |
 
 ---
 
-## Tool/Flow
+## View: `sequence`
 
-### get_day_plan
+Call `sequence` (add `date` only for another day). It answers text: `Day plan for DATE (done/total completed):`, then one `- [ ] name` or `- [x] name` line per entry in plan order. For "hide done" / "hide completed", drop the `[x]` lines. A date with no plan answers "No day plan found for this date."; an empty plan answers "Your day plan for DATE is empty."
 
-Determine the date path segment:
-- No args → use `today`
-- Date argument → use the date string (e.g., `2026-02-13`)
+```
+## Day Plan — {date_label}
 
-Detect optional `show` filter from user intent:
-- "must items", "priority only", "#must only" → `show=must`
-- "hide done", "hide completed", "hide deferred", "not deferred and completed" → `show=not%20deferred%20and%20completed`
-- Default (no filter) → omit `?show=`
+| # | Name | Done |
+|---|---|---|
+| 1 | Write proposal | |
+| 2 | Fix login bug | yes |
 
-#### Step 1: Fetch plan items
-
-**Without filter** (default):
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/day-plans/DATE_SEGMENT/items")
-echo "$RESPONSE"
+**{total} items** — {remaining} remaining
 ```
 
-**With `show` filter** (uses main plan endpoint, not `/items`):
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/day-plans/DATE_SEGMENT?show=SHOW_VALUE")
-echo "$RESPONSE"
-```
-Parse items from `body.data.items` (not `body.data` directly). No pagination meta.
+- `#` = row order. `Done` = "yes" for `[x]`, blank for `[ ]`. `remaining` = count of `[ ]` lines. `date_label` = "Today" when `date` was omitted, else the formatted date.
+- Empty plan: "Nothing on today's plan yet. Use `add "action item name"` to add one." (`{date}'s` for another day).
+- No plan for the date: "No plan exists for {date}."
 
-Replace `DATE_SEGMENT` with `today` or the `YYYY-MM-DD` date. Replace `SHOW_VALUE` with `must` or `not%20deferred%20and%20completed`.
+## Writes
 
-#### Step 2: Handle response
+Confirm first, then call the tool. After create, attach, complete, undo or remove, show the updated plan (`sequence`, same date). Pass `date` only for another day.
 
-Parse the JSON response from api.sh:
+| Flow | Tool and arguments | Confirm | On success |
+|---|---|---|---|
+| create | `add_to_work_plan`: `name`, `date?` | Create item "**{name}**" on {date_label}'s plan? | Created item **{id}**: "{name}" (the answer carries the new id) |
+| attach | `attach_to_work_plan`: `todo` = ID, `date?` | Attach item **{id}** to {date_label}'s plan? | Item **{id}** attached to {date_label}'s plan. An "already in" answer means it is on the plan: say so, not an error. |
+| complete | `mark_done`: `todo_or_issue` = ID | Mark item **{id}** as complete? | Item **{id}** marked complete. |
+| undo | `update_item`: `todo_or_issue` = ID, `status` = `not_started` | Mark item **{id}** as incomplete? | Item **{id}** marked incomplete. |
+| remove | `remove_from_work_plan`: `todo` = ID, `date?` | Remove item **{id}** from {date_label}'s plan? (Item will still exist in your items.) | Item **{id}** removed from {date_label}'s plan. |
+| comment | `add_item_comment`: `todo_or_issue` = ID, `body` | Add comment to item **{id}**: "{text}" Proceed? | Comment added (ID: {comment_id}) to item **{id}**: "{text}" |
 
-**Error responses** (status 0 or non-200):
-- `"error": "NO_CONFIG"` or `"error": "NO_TOKEN"` → "Config not found. Run `/rkit:setup` first."
-- `"error": "CURL_FAILED"` → "Network error. Check your connection."
-- `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
-- `status: 404` → "No plan found for that date."
-- Other non-200 → Show status code and error from response body.
+`list_item_comments` (`todo_or_issue` = ID) answers JSON `{total, comments: [{id, body, author, created_at, updated_at}]}`. Show `| ID | Author | Comment | Time |`, strip HTML from `body`, add `(edited)` when `updated_at` is later than `created_at`. None: "No comments on item {id}."
 
-**Success (status 200)**:
+## Fallback — still `scripts/api.sh`
 
-Extract `body.data` array (the items) and `body.meta` (pagination info).
+The connector has no tool for these jobs, so they run as before: `RESPONSE=$("<api.sh path>" METHOD PATH [BODY])` returns `{status, body}`. `DATE_SEGMENT` is `today` or `YYYY-MM-DD`. Confirm writes first, as above.
 
-- **Empty array**: Display:
-  > Nothing on today's plan yet. Use `add "action item name"` to add one.
+| Job | Call |
+|---|---|
+| Plan with IDs, status and position (also to find an item the user named without an ID) | `GET /day-plans/DATE_SEGMENT/items`, items in `body.data`. Table columns `#`, `ID`, `Name`, `Status`, `Done` from `position`, `id`, `name`, `status`, `completed`. |
+| Filtered plan | `GET /day-plans/DATE_SEGMENT?show=must` or `?show=not%20deferred%20and%20completed`, items in `body.data.items` |
+| One-day check-off (a #daily to-do stays open; `mark_done` completes it everywhere) | `PATCH /day-plans/DATE_SEGMENT/items/ITEM_ID` `{"completed":true}` |
+| Edit comment | `PATCH /comments/COMMENT_ID` `{"body":"NEW_TEXT"}`; 403 "You can only edit your own comments." |
+| Delete comment | `DELETE /comments/COMMENT_ID`; 403 "You can only delete your own comments (a team admin can also delete any comment on this item)." |
 
-- **Items present**: Display as a table:
-
-  ```
-  ## Day Plan — {date_label}
-
-  | # | ID | Name | Status | Done |
-  |---|---|---|---|---|
-  | 1 | 415 | Write proposal | next | |
-  | 2 | 412 | Fix login bug | next | yes |
-
-  **{total} items** — {remaining} remaining
-  ```
-
-  - `#` = position field
-  - `Done` column: "yes" if `completed` is true, blank if false
-  - `date_label`: "Today" for today segment, or the formatted date
-  - Summary line: count of remaining (not completed) items
-
----
-
-### mark_item_complete
-
-#### Step 1: Confirm
-
-Extract the item ID from args. Display:
-> Mark item **{id}** as complete?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PATCH "/day-plans/DATE_SEGMENT/items/ITEM_ID" '{"completed":true}')
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Display confirmation, then show the updated plan (re-fetch using `get_day_plan`).
-- **Status 404**: "Item {id} not found on today's plan."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### mark_item_incomplete
-
-#### Step 1: Confirm
-
-Extract the item ID from args. Display:
-> Mark item **{id}** as incomplete?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PATCH "/day-plans/DATE_SEGMENT/items/ITEM_ID" '{"completed":false}')
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Display confirmation, then show the updated plan (re-fetch using `get_day_plan`).
-- **Status 404**: "Item {id} not found on today's plan."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### create_new_item
-
-#### Step 1: Confirm
-
-Extract the item name from args. Display:
-> Create item "**{name}**" on {date_label}'s plan?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/day-plans/DATE_SEGMENT/items" '{"name":"ITEM_NAME"}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in ITEM_NAME.
-
-#### Step 3: Handle response
-
-- **Status 200 or 201**: Show the new item with its ID:
-  > Created item **{id}**: "{name}"
-
-  Then show the updated plan (re-fetch using `get_day_plan`).
-- **Status 422**: Show validation error from response body.
-- **Other errors**: Handle per error handling rules.
-
----
-
-### attach_existing_item
-
-#### Step 1: Confirm
-
-Extract the item ID from args. Display:
-> Attach item **{id}** to {date_label}'s plan?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PUT "/day-plans/DATE_SEGMENT/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Display confirmation:
-  > Item **{id}** attached to {date_label}'s plan.
-
-  Then show the updated plan (re-fetch using `get_day_plan`).
-- **Status 404**: "Item {id} not found."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### remove_from_day_plan
-
-#### Step 1: Confirm
-
-Extract the item ID from args. Display:
-> Remove item **{id}** from {date_label}'s plan? (Item will still exist in your items.)
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" DELETE "/day-plans/DATE_SEGMENT/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200 or 204**: Display confirmation:
-  > Item **{id}** removed from {date_label}'s plan.
-
-  Then show the updated plan (re-fetch using `get_day_plan`).
-- **Status 404**: "Item {id} not found on today's plan."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### add_comment_on_item
-
-#### Step 1: Resolve parameters
-
-Extract the **item ID** and the **comment text** from args.
-
-#### Step 2: Confirm
-
-Display:
-> Add comment to item **{id}**:
-> "{text}"
->
-> Proceed?
-
-Wait for confirmation.
-
-#### Step 3: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body":"COMMENT_TEXT"}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in COMMENT_TEXT.
-
-#### Step 4: Handle response
-
-- **Status 201**: Extract the created comment from `body.data`. Display:
-  > Comment added (ID: {id}) to item **{item_id}**: "{body}"
-- **Status 404**: "Item {id} not found."
-- **Status 422**: "Comment text cannot be empty."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### list_comments_on_item
-
-#### Step 1: Resolve parameters
-
-Extract the **item ID** from args.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: Extract `body.data` array. If empty:
-  > No comments on item {id}.
-
-  If present, display:
-  ```
-  | ID | Author | Comment | Time |
-  |----|--------|---------|------|
-  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
-  ```
-  Append `(edited)` after the time when `updated_at` is later than `created_at`.
-- **Status 404**: "Item {id} not found."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### edit_comment
-
-#### Step 1: Resolve parameters and confirm
-
-Extract the **comment ID** and **new text**. Display:
-> Edit comment **{comment_id}** to: "{text}"?
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body":"NEW_TEXT"}')
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: "Comment **{comment_id}** updated."
-- **Status 403**: "You can only edit your own comments."
-- **Status 404**: "Comment {comment_id} not found."
-- **Status 422**: "Comment text cannot be empty."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### delete_comment
-
-#### Step 1: Resolve parameters and confirm
-
-Extract the **comment ID**. Display:
-> Delete comment **{comment_id}**? This cannot be undone.
-
-Wait for confirmation.
-
-#### Step 2: Execute
-
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
-echo "$RESPONSE"
-```
-
-#### Step 3: Handle response
-
-- **Status 200**: "Comment **{comment_id}** deleted."
-- **Status 403**: "You can only delete your own comments (a team admin can also delete any comment on this item)."
-- **Status 404**: "Comment {comment_id} not found."
-- **Other errors**: Handle per error handling rules.
-
----
-
-### Edge Cases
-
-- **No config**: Any flow → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
-- **Item already on plan** (PUT/attach): Idempotent — API returns 200, confirm it's on the plan.
-- **Empty plan on view**: Show helpful message with add hint.
-- **Date plan doesn't exist**: 404 → "No plan exists for {date}."
-- **Empty comment text**: "Comment text cannot be empty."
-- **Comment not found (404)**: "Comment {id} not found."
-- **Edit/delete someone else's comment (403)**: "You can only edit/delete your own comments."
-
----
+api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` first."; `CURL_FAILED` "Network error. Check your connection."; 401 "Unauthorized (401). Run `/rkit:setup` to update your token."; path `NOT_FOUND` "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`".
 
 ## How to Interpret
 
-1. **Read the user's message.** Look for trigger words/phrases from the table.
-2. **Extract parameters.** Look for:
-   - An **item ID** (integer, e.g., "415", "item 415", "#415")
-   - A **date** (e.g., "tomorrow", "Monday", "2026-02-20", "Feb 20") → convert to `YYYY-MM-DD`
-   - A **name** (quoted text, or text after "add"/"create")
-   - A **completion intent** ("done", "undo", "check", "uncheck")
-3. **Pick the matching tool row.** If the user provides an ID with "add"/"attach"/"put", use `attach_existing_item`. If they provide a name/text, use `create_new_item`.
-4. **Default to `get_day_plan`** if no clear write intent is detected.
-5. **If ambiguous**, ask the user: "Did you mean to [option A] or [option B]?"
+1. Look for trigger phrases in the table. Extract an **item ID** (integer: "415", "item 415", "#415"), a **date** (convert to `YYYY-MM-DD` using Today above), a **name** (quoted text, or text after "add"/"create") and a **completion intent** ("done", "undo", "check", "uncheck").
+2. An ID with "add"/"attach"/"put" means attach; a name means create. With no clear write intent, view the plan.
+3. **Dates:** nothing or "today" = omit `date`. "tomorrow", "yesterday", "Monday", "next Tuesday", "Feb 20" = that day as `YYYY-MM-DD`.
 
-### Date Resolution
+## Errors
 
-| User says | Segment value |
+| The tool answers | Say |
 |---|---|
-| *(nothing)* / "today" | `today` |
-| "tomorrow" | tomorrow's date as `YYYY-MM-DD` |
-| "yesterday" | yesterday's date as `YYYY-MM-DD` |
-| "Monday", "next Tuesday", etc. | resolve to `YYYY-MM-DD` |
-| "2026-02-20", "Feb 20" | `2026-02-20` |
-
-Use the current date from **Current State** to resolve relative dates.
-
----
-
-## Schemas
-
-**DayPlanItem:**
-```json
-{
-  "id": 415,
-  "name": "Write proposal",
-  "description": null,
-  "due": "2026-02-25",
-  "status": "next",
-  "on_weekly": true,
-  "team": { "id": 1, "name": "Acme Team" },
-  "creator": { "id": 1, "login": "patrick", "first_name": "Patrick", "last_name": "Smith" },
-  "assignees": [{ "id": 7, "login": "sarah", "first_name": "Sarah", "last_name": "Lee" }],
-  "parent_id": 100,
-  "created_at": "2026-02-19T08:00:00Z",
-  "updated_at": "2026-02-19T08:00:00Z",
-  "completed": false,
-  "position": 1,
-  "deferred_to_date": null
-}
-```
-
-**Pagination:**
-```json
-{
-  "page": 1,
-  "per_page": 25,
-  "total": 3,
-  "total_pages": 1
-}
-```
-
----
-
-## Error Handling
-
-| Status | Response |
-|---|---|
-| `error: NO_CONFIG` | "Config not found. Run `/rkit:setup` first." |
-| `error: NO_TOKEN` | "No API token. Run `/rkit:setup` to configure." |
-| `error: CURL_FAILED` | "Network error. Check your connection." |
-| `status: 401` | "Unauthorized. Run `/rkit:setup` to update your token." |
-| `status: 404` | "Not found. Item may not exist or isn't on this plan." |
-| `status: 422` | Show validation error from response body. |
-| Other non-200 | Show status code and error message. |
-
-## References
-
-- [ResultMaps V2 API Reference](references/api-reference.md)
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| "No day plan found…", "Day plan not found" | "No plan exists for {date}." Only today's plan is created on demand. |
+| "Item not in…" | "Item {id} not found on {date_label}'s plan." |
+| "…not found or you don't have access…", "Item not found" | "Item {id} not found." |
+| "Invalid date…" | Say the date is not a real day and ask for another. |
+| "A comment cannot be blank." | "Comment text cannot be empty." |
+| any other `Error: …` | Show it as returned. |

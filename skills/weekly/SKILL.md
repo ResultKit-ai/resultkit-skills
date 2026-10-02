@@ -7,21 +7,23 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQues
 
 # rkit:weekly
 
+The team weekly board (Level 10 for EOS teams). It drives the ResultKit connector's MCP tools, named below by base name: the full tool name is `mcp__<server>__<tool>` and the server alias varies by install, so match on the base name. `scripts/api.sh` is used only for the jobs under **Fallback**.
+
 ## Current State
 
 - Config status: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/weekly/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/weekly/scripts/api.sh "$HOME/.claude/skills/rkit:weekly/scripts/api.sh" "$HOME/.agents/skills/weekly/scripts/api.sh" "$HOME/.gemini/skills/weekly/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
+- api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/weekly/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/weekly/scripts/api.sh "$HOME/.claude/skills/rkit:weekly/scripts/api.sh" "$HOME/.agents/skills/weekly/scripts/api.sh" "$HOME/.gemini/skills/weekly/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
 
-- **Confirm writes**: Before any POST/PUT/PATCH/DELETE, summarize all planned changes in a single prompt and ask for confirmation. If the command implies multiple related mutations, batch them under one confirmation. GET requests execute immediately.
+- **Confirm writes**: Before any write, summarize all planned changes in a single prompt and ask for confirmation. If the command implies multiple related mutations, batch them under one confirmation. Reads execute immediately.
 - **Show IDs**: Always include item IDs in output so users can reference them.
 - **Concise output**: Tables and short summaries. No verbose prose.
-- **Direct execution**: Use Bash for all API calls via api.sh. Never use Task agents or subagents.
+- **Direct execution**: Call the connector tools directly (`scripts/api.sh` only for the Fallback jobs). Never use Task agents or subagents, never curl or hand-build a URL, and skip the connector's `guide` tool: the flows below are complete for this skill.
 
 ## Framework Terminology
 
-Fetch the team's `framework` field from `GET /teams/{team_id}`. Map the board name and column headers:
+`get_team` answers a `**Framework**:` line (the team's `framework`; no line = default/null). Map the board name and column headers:
 
 | | Default / null | EOS | OKR | 4DX | V2MOM | SRT | SVEP |
 |-------------|----------------|-----|-----|-----|-------|-----|------|
@@ -33,22 +35,7 @@ Fetch the team's `framework` field from `GET /teams/{team_id}`. Map the board na
 
 **Always use the framework-mapped board name in all user-facing output and messages.** For EOS teams, say "Level 10" — never "weekly board" or "team weekly."
 
-## L10 Route Selection
-
-After fetching the team detail, check the `framework` field. For EOS teams, use L10-specific API routes for all four columns. The L10 routes are aliases that return identical responses but use EOS terminology in the URL.
-
-| Column | EOS Route | Non-EOS Route |
-|--------|-----------|---------------|
-| next (To-Do) | `GET /teams/{id}/l10/todos` | `GET /teams/{id}/items/next` |
-| done | `GET /teams/{id}/l10/done` | `GET /teams/{id}/items/done` |
-| blocked (Issues) | `GET /teams/{id}/l10/issues` | `GET /teams/{id}/items/blocked` |
-| parked | `GET /teams/{id}/l10/parked` | `GET /teams/{id}/items/parked` |
-
-Write operations (move, add, remove) always use generic routes (`/teams/{id}/items/...`) regardless of framework — L10 routes only support GET and POST.
-
 ## Argument Parsing
-
-Parse the user input to determine which flow to follow:
 
 | Input | Flow |
 |-------|------|
@@ -65,86 +52,40 @@ Parse the user input to determine which flow to follow:
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
 
----
+**Team ID.** `--team {id}` if given, else `default_team_id` from the config above, else "No default team configured. Run `/rkit:setup` first."
 
-## Team ID Resolution
+## Tools
 
-1. **`--team {id}` flag** in args → use that team ID
-2. **`default_team_id` in config** → use that
-3. **Neither** → "No default team configured. Run `/rkit:setup` first."
+| Job | Tool and arguments |
+|---|---|
+| Team name and framework | `get_team`: `team_id`. Answers `# {name}` and `**Framework**: {value}`. |
+| Whole board, EOS team | `L10_todos_issues`: `team_id`. Answers JSON `{team_id, sections: {next, done, blocked, parked}}`; each section is `{items, page, per_page, total}`. |
+| One column, EOS team | `list_L10_section`: `team_id`, `section` (`next`, `done`, `blocked` or `parked`). Answers `{section, items, page, per_page, total}`. |
+| Read one item | `get_item`: `todo_or_issue`. Answers `# {name}` and `**Status**: {status}`; the board columns are the statuses `next`, `done`, `blocked`, `parked`. |
+| Move | `move_on_L10`: `team_id`, `todo_or_issue`, `section` (the column). Moves only an item already on this team's board. |
+| Remove | `remove_from_L10`: `team_id`, `todo_or_issue`. The item is not deleted. |
+| Comments | `add_item_comment`: `todo_or_issue`, `body`. `list_item_comments`: `todo_or_issue`. |
 
----
+Each item in a column has `id`, `name`, `creator`, `due`.
 
-## Error Handling
+## Fallback — still `scripts/api.sh`
 
-Parse the JSON response from api.sh. Handle these cases:
+The connector has no tool for these jobs, so they run as before: `RESPONSE=$("<api.sh path>" METHOD PATH [BODY])` returns `{status, body}`. Confirm writes first, as above.
 
-- `"error": "NO_CONFIG"` or `"error": "NO_TOKEN"` → "Config not found. Run `/rkit:setup` first."
-- `"error": "CURL_FAILED"` → "Network error. Check your connection."
-- `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
-- `status: 404` → "Not found (404)."
-- `status: 422` → Show validation error from response body.
-- Other non-200 → Show status code and error from response body.
+| Job | Call |
+|---|---|
+| Board reads for a non-EOS team (the connector's board tools read the Level 10 service, a different read from the generic board these teams used) | `GET /teams/TEAM_ID/items/COLUMN?per_page=50` for `next`, `done`, `blocked`, `parked`; items in `body.data`, count in `body.meta.total` |
+| Add an existing item to the board in a column (`place_on_L10` is not this job: it cannot reach Done or Parked and does not tag the name `#next`) | `GET /items/ITEM_ID` (`on_weekly`, name, status), then `PUT /teams/TEAM_ID/items/COLUMN/ITEM_ID` |
+| Edit comment | `PATCH /comments/COMMENT_ID` `{"body": "NEW_TEXT"}`; 403 "You can only edit your own comments." |
+| Delete comment | `DELETE /comments/COMMENT_ID`; 403 "You can only delete your own comments (a team admin can also delete any comment on this item)." |
+
+api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` first."; `CURL_FAILED` "Network error. Check your connection."; 401 "Unauthorized (401). Run `/rkit:setup` to update your token."; 404 "Not found (404)."; 422 show the validation error from the body; other non-200 show the status code and the error from the body; path `NOT_FOUND` "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`".
 
 ---
 
 ## Flow: View Weekly
 
-**Trigger**: No args (or only `--team {id}`)
-
-### Step 1: Fetch team detail and all four columns
-
-Resolve team ID. Then fetch team detail for framework, and all four columns:
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEAM=$("$API_SH" GET "/teams/TEAM_ID")
-echo "$TEAM"
-```
-
-Extract the team's `framework` from the response. Then fetch all four columns using the routes from the **L10 Route Selection** table:
-
-**If framework is `eos`** — use L10 routes for next and blocked:
-
-```bash
-API_SH="<api.sh path from Current State>"
-NEXT=$("$API_SH" GET "/teams/TEAM_ID/l10/todos?per_page=50")
-DONE=$("$API_SH" GET "/teams/TEAM_ID/l10/done?per_page=50")
-BLOCKED=$("$API_SH" GET "/teams/TEAM_ID/l10/issues?per_page=50")
-PARKED=$("$API_SH" GET "/teams/TEAM_ID/l10/parked?per_page=50")
-echo "---NEXT---"
-echo "$NEXT"
-echo "---DONE---"
-echo "$DONE"
-echo "---BLOCKED---"
-echo "$BLOCKED"
-echo "---PARKED---"
-echo "$PARKED"
-```
-
-**Otherwise** — use generic routes:
-
-```bash
-API_SH="<api.sh path from Current State>"
-NEXT=$("$API_SH" GET "/teams/TEAM_ID/items/next?per_page=50")
-DONE=$("$API_SH" GET "/teams/TEAM_ID/items/done?per_page=50")
-BLOCKED=$("$API_SH" GET "/teams/TEAM_ID/items/blocked?per_page=50")
-PARKED=$("$API_SH" GET "/teams/TEAM_ID/items/parked?per_page=50")
-echo "---NEXT---"
-echo "$NEXT"
-echo "---DONE---"
-echo "$DONE"
-echo "---BLOCKED---"
-echo "$BLOCKED"
-echo "---PARKED---"
-echo "$PARKED"
-```
-
-### Step 2: Display weekly board
-
-Use the team's `framework` field to look up column headers from the Framework Terminology table.
-
-Display format:
+**Trigger**: No args (or only `--team {id}`). Resolve the team ID. Call `get_team` for the framework and team name. EOS team: `L10_todos_issues`. Any other framework: the four Fallback board reads. Look up column headers in the Framework Terminology table.
 
 ```
 {board_name}: {team_name} (ID: {team_id})
@@ -172,289 +113,86 @@ Showing 50 of {total} — more items exist
 ```
 
 **Display rules**:
-- Column header shows framework-mapped name and total item count from `meta.total`
-- Each item shows: ID, name, creator (`first_name last_name` from `creator` field; show login if names are empty), due date (or "—" if null)
-- Empty columns show "(empty)"
-- If a column has more than 50 items (`meta.total > 50`), show "Showing 50 of {total} — more items exist" after the table
-- Column order: next, done, blocked, parked (always this order)
-
----
+- Column header shows the framework-mapped name and the section's `total` (`meta.total` on the Fallback read).
+- Each item shows: ID, name, creator (`first_name last_name` from `creator`; show login if names are empty), due date (or "—" if null).
+- Empty columns show "(empty)".
+- If a column has more than 50 items (`total` over 50), show the first 50 and "Showing 50 of {total} — more items exist" after the table.
+- Column order: next, done, blocked, parked (always this order).
 
 ## Flow: View Single Column
 
-**Trigger**: `next`, `done`, `blocked`, or `parked`
-
-### Step 1: Fetch team detail and the requested column
-
-Resolve team ID. Fetch team detail for framework, then the single column:
-
-```bash
-API_SH="<api.sh path from Current State>"
-TEAM=$("$API_SH" GET "/teams/TEAM_ID")
-echo "$TEAM"
-```
-
-Use the **L10 Route Selection** table to determine the correct path:
-
-- If framework is `eos` and column is `next`: use `/teams/TEAM_ID/l10/todos?per_page=50`
-- If framework is `eos` and column is `done`: use `/teams/TEAM_ID/l10/done?per_page=50`
-- If framework is `eos` and column is `blocked`: use `/teams/TEAM_ID/l10/issues?per_page=50`
-- If framework is `eos` and column is `parked`: use `/teams/TEAM_ID/l10/parked?per_page=50`
-- Otherwise: use `/teams/TEAM_ID/items/COLUMN?per_page=50`
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/<selected-path>?per_page=50")
-echo "$RESPONSE"
-```
-
-### Step 2: Display column
-
-Use same display format as a single section from View Weekly — framework-mapped header, item table, overflow indicator.
-
----
+**Trigger**: `next`, `done`, `blocked`, or `parked`. Resolve the team ID; `get_team` for the framework. EOS team: `list_L10_section` with that section. Any other framework: the Fallback read for that column. Display as a single section from View Weekly — framework-mapped header, item table, overflow indicator.
 
 ## Flow: Move Item
 
-**Trigger**: `move {item_id} {column}`
+**Trigger**: `move {item_id} {column}`. Column must be one of `next`, `done`, `blocked`, `parked` ("Invalid column '{input}'. Use: next, done, blocked, or parked.").
 
-Column must be one of: `next`, `done`, `blocked`, `parked`.
-
-### Step 1: Check current status
-
-Fetch the item to check its current status:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-Map the item's `status` to a column:
-- `next` → next
-- `done` → done
-- `blocked` → blocked
-- `parked` → parked
-
-If the item's current column matches the target → "Item {item_id} is already in {column}." and stop.
-
-If the item is not on the {board_name} (`on_weekly` is false) → "Item {item_id} is not on the {board_name}. Use `add` to put it on first."
-
-### Step 2: Confirm and execute
-
-Resolve team ID. Describe the move:
-> Move item **{item_name}** (ID: {item_id}) from **{current_column}** to **{target_column}**?
-
-Wait for confirmation. Then execute:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PUT "/teams/TEAM_ID/items/TARGET_COLUMN/ITEM_ID")
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Moved **{item_name}** (ID: {item_id}) to **{target_column}**."
-- **Error** → use Error Handling above
-
----
+1. `get_item`. Not found → "Item {item_id} not found." Map its `**Status**` to a column; already the target → "Item {item_id} is already in {column}." and stop.
+2. Resolve the team ID. Confirm: > Move item **{item_name}** (ID: {item_id}) from **{current_column}** to **{target_column}**? Wait for confirmation, then `move_on_L10` (`team_id`, `todo_or_issue`, `section` = the target column).
+3. Success: "Moved **{item_name}** (ID: {item_id}) to **{target_column}**." Refused because the item is not on this team's Level 10 (the answer says to place it there first; nothing is written) → "Item {item_id} is not on the {board_name}. Use `add` to put it on first."
 
 ## Flow: Add Item to Weekly
 
-**Trigger**: `add {item_id}` or `add {item_id} {column}`
+**Trigger**: `add {item_id}` or `add {item_id} {column}`. All calls are Fallback.
 
-### Step 1: Check if already on weekly
-
-Fetch the item:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-- If 404 → "Item {item_id} not found."
-- If `on_weekly` is true → "Item **{item_name}** (ID: {item_id}) is already on the {board_name} in **{current_column}**. Move it instead?" If user says yes, switch to Move flow.
-
-### Step 2: Determine column
-
-- If column provided in args → validate it's one of next/done/blocked/parked
-- If no column → prompt user:
-  > Which column for **{item_name}** (ID: {item_id})?
-  > 1. Next
-  > 2. Done
-  > 3. Blocked
-  > 4. Parked
-
-  (Use framework-mapped names in the prompt.)
-
-### Step 3: Confirm and execute
-
-Resolve team ID. Describe:
-> Add **{item_name}** (ID: {item_id}) to the {board_name} in **{column}**?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PUT "/teams/TEAM_ID/items/COLUMN/ITEM_ID")
-echo "$RESPONSE"
-```
-
-This single call adds the item to the team board (`on_weekly=true`) and sets its status in one step.
-
-### Step 4: Handle response
-
-- **Status 200**: "Added **{item_name}** (ID: {item_id}) to **{column}**."
-- **Error** → use Error Handling above
-
----
+1. `GET /items/ITEM_ID`. 404 → "Item {item_id} not found." `on_weekly` true → "Item **{item_name}** (ID: {item_id}) is already on the {board_name} in **{current_column}** (map `status` to a column as in the Move flow). Move it instead?" — yes switches to the Move flow.
+2. Column: from args (must be next/done/blocked/parked), else ask with framework-mapped names:
+   > Which column for **{item_name}** (ID: {item_id})?
+   > 1. Next
+   > 2. Done
+   > 3. Blocked
+   > 4. Parked
+3. Resolve the team ID. Confirm: > Add **{item_name}** (ID: {item_id}) to the {board_name} in **{column}**? Wait for confirmation, then `PUT /teams/TEAM_ID/items/COLUMN/ITEM_ID`. This single call adds the item to the team board (`on_weekly=true`) and sets its status in one step.
+4. 200 → "Added **{item_name}** (ID: {item_id}) to **{column}**."
 
 ## Flow: Remove Item from Weekly
 
-**Trigger**: `remove {item_id}`
+**Trigger**: `remove {item_id}`.
 
-### Step 1: Validate item
-
-Fetch the item:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-- If 404 → "Item {item_id} not found."
-- If `on_weekly` is false → "Item {item_id} is not on the {board_name}."
-
-### Step 2: Confirm and execute
-
-Resolve team ID. Describe:
-> Remove **{item_name}** (ID: {item_id}) from the {board_name}? (Item will still exist — only removed from the {board_name}.)
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/teams/TEAM_ID/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-### Step 3: Handle response
-
-- **Status 200**: "Removed **{item_name}** (ID: {item_id}) from the {board_name}."
-- **Error** → use Error Handling above
-
----
+1. `get_item`. Not found → "Item {item_id} not found."
+2. Resolve the team ID. Confirm: > Remove **{item_name}** (ID: {item_id}) from the {board_name}? (Item will still exist — only removed from the {board_name}.) Wait for confirmation, then `remove_from_L10` (`team_id`, `todo_or_issue`).
+3. Success: "Removed **{item_name}** (ID: {item_id}) from the {board_name}." Refused with "To-do or issue not found or you don't have access to it." (the item just read fine, so it is not on this team's board) → "Item {item_id} is not on the {board_name}."
 
 ## Flow: Add Comment to an Item
 
-**Trigger**: `comment {item_id} "text"`
-
-### Step 1: Parse, validate, and fetch item
-
-Extract the item ID and comment text. If text is empty → "Comment text cannot be empty."
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID")
-echo "$RESPONSE"
-```
-
-- If 404 → "Item {item_id} not found."
-
-### Step 2: Confirm and execute
-
-> Add comment to **{item_name}** (ID: {item_id}):
-> "{text}"
->
-> Proceed?
-
-Wait for confirmation. Then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" POST "/items/ITEM_ID/comments" '{"body": "COMMENT_TEXT"}')
-echo "$RESPONSE"
-```
-
-Escape any double quotes in COMMENT_TEXT.
-
-### Step 3: Handle response
-
-- **Status 201**: Extract the new comment from `body.data`. Display: `Comment added (ID: {id}) to **{item_name}**: "{body}"`
-- **Status 422** → "Comment text cannot be empty."
-- **Error** → use Error Handling above
-
----
+**Trigger**: `comment {item_id} "text"`. Empty text → "Comment text cannot be empty." `get_item` for the name (not found → "Item {item_id} not found."). Confirm: > Add comment to **{item_name}** (ID: {item_id}): > "{text}" > > Proceed? Wait for confirmation, then `add_item_comment` (`todo_or_issue`, `body` = the text). The answer names the new comment's id: `Comment added (ID: {id}) to **{item_name}**: "{body}"`, with the text you sent. "A comment cannot be blank." → "Comment text cannot be empty."
 
 ## Flow: List Comments on an Item
 
-**Trigger**: `comments {item_id}`
+**Trigger**: `comments {item_id}`. `list_item_comments` (`todo_or_issue`); it answers JSON `{total, comments: [{id, body, author, created_at, updated_at}]}`. None → "No comments on item {item_id}." Else display (strip HTML from `body`; append `(edited)` after the time when `updated_at` is later than `created_at`):
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" GET "/items/ITEM_ID/comments")
-echo "$RESPONSE"
+```
+| ID | Author | Comment | Time |
+|----|--------|---------|------|
+| 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
 ```
 
-- **Status 200**: Extract `body.data` array. If empty → "No comments on item {item_id}." If present, display:
-
-  ```
-  | ID | Author | Comment | Time |
-  |----|--------|---------|------|
-  | 9001 | Sarah Lee | Talked to the vendor. | 2026-03-07 14:02 |
-  ```
-
-  Append `(edited)` after the time when `updated_at` is later than `created_at`.
-- **Status 404** → "Item {item_id} not found."
-- **Error** → use Error Handling above
-
----
+"To-do or issue not found or you don't have access to it." → "Item {item_id} not found."
 
 ## Flow: Edit / Delete My Comment
 
-**Trigger**: `edit comment {comment_id} "text"` or `delete comment {comment_id}`
+**Trigger**: `edit comment {comment_id} "text"` or `delete comment {comment_id}`. Both are Fallback.
 
-**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`, then:
+**Edit** — confirm `Edit comment **{comment_id}** to: "{text}"? Proceed?`, then `PATCH /comments/COMMENT_ID`. 200 → "Comment **{comment_id}** updated." · 403 → "You can only edit your own comments." · 404 → "Comment {comment_id} not found." · 422 → "Comment text cannot be empty."
 
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" PATCH "/comments/COMMENT_ID" '{"body": "NEW_TEXT"}')
-echo "$RESPONSE"
-```
-
-- **Status 200**: "Comment **{comment_id}** updated." · **403** → "You can only edit your own comments." · **404** → "Comment {comment_id} not found." · **422** → "Comment text cannot be empty."
-
-**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then:
-
-```bash
-API_SH="<api.sh path from Current State>"
-RESPONSE=$("$API_SH" DELETE "/comments/COMMENT_ID")
-echo "$RESPONSE"
-```
-
-- **Status 200**: "Comment **{comment_id}** deleted." · **403** → "You can only delete your own comments (a team admin can also delete any comment on this item)." · **404** → "Comment {comment_id} not found."
+**Delete** — confirm `Delete comment **{comment_id}**? This cannot be undone.`, then `DELETE /comments/COMMENT_ID`. 200 → "Comment **{comment_id}** deleted." · 403 → "You can only delete your own comments (a team admin can also delete any comment on this item)." · 404 → "Comment {comment_id} not found."
 
 ---
 
+## Errors
+
+| The tool answers | Say |
+|---|---|
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| `get_team`: "Team not found." or "You don't have access to this team." | "Team {id} not found (404)." |
+| any other `Error: …` | Show it as returned. |
+
 ## Edge Cases
 
-- **No config** → "Config not found. Run `/rkit:setup` first."
-- **api.sh not found** → "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
+- **No config** (and no `--team`) → "Config not found. Run `/rkit:setup` first."
 - **All columns empty** → show all four column headers with "(empty)"
-- **Item not on {board_name} (move)** → "Item {id} is not on the {board_name}. Use `add` to put it on first."
-- **Item already in target column (move)** → warn and skip
-- **Item already on {board_name} (add)** → warn and offer to move instead
-- **Column has >50 items** → show first 50 with "Showing 50 of {total} — more items exist"
-- **Invalid column name** → "Invalid column '{input}'. Use: next, done, blocked, or parked."
-- **Team not found (--team override)** → "Team {id} not found (404)."
-- **Creator names empty** → fall back to `login` field
-- **Empty comment text** → "Comment text cannot be empty."
-- **Comment not found (404)** → "Comment {id} not found."
-- **Edit/delete someone else's comment (403)** → "You can only edit/delete your own comments."
+- **Invalid column name** (move, add) → "Invalid column '{input}'. Use: next, done, blocked, or parked."
 
 ## References
 
-- [ResultMaps V2 API Reference](references/api-reference.md)
+- [ResultMaps V2 API Reference](references/api-reference.md) — payloads for the Fallback calls.

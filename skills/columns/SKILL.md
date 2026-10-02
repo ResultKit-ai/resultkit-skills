@@ -14,21 +14,16 @@ allowed-tools: Bash(*/skills/columns/scripts/api.sh GET *), Bash(jq *), Read, Gl
 
 # rkit:columns
 
-Reads the Personal Planner's day-plan custom columns. **Read-only.**
-
-## Current State
-
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
-- api.sh: !`CACHE=$(ls -1d "$HOME"/.claude/plugins/cache/*/rkit/*/skills/columns/scripts/api.sh 2>/dev/null | sort -rV | head -1); for p in "${CLAUDE_PLUGIN_ROOT}/skills/columns/scripts/api.sh" "$CACHE" "./skills/columns/scripts/api.sh" "./.claude/skills/columns/scripts/api.sh" "$HOME/.claude/skills/rkit:columns/scripts/api.sh" "$HOME/.agents/skills/columns/scripts/api.sh" "$HOME/.gemini/skills/columns/scripts/api.sh"; do [ -f "$p" ] && { echo "$p"; exit 0; }; done; echo "NOT_FOUND"`
+Reads the Personal Planner's day-plan custom columns. **Read-only.** It drives the ResultKit connector's MCP tools (`custom_columns`, `list_work_done` and, for one date, `sequence`); `scripts/api.sh` has no job here (see **Fallback**). Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
 
 ## Rules
 
 - **The templates are law.** Every reply below is locked wording — https://resultkit.ai/pages/55, 8 scenarios locked 2026-08-02. Reproduce the wording, punctuation, blank lines, and ordering exactly. Substitute counts and names; change nothing else. No preamble, no sign-off, no extra commentary, no headings, no bold, no item IDs, no dates, no emoji.
 - **Emit as plain lines**, not inside a code fence and not as a table. The fences below mark where each template starts and stops.
-- **Read-only skill.** GETs only. Never POST, PATCH, PUT, or DELETE. (`GET /day-plans/today` materializes today's plan server-side as part of serving it — idempotent, and exactly what the Custom tab triggers. That is the server populating a plan, not this skill writing.) The closing offers ("check anything off", "add anything new", "create") are conversational — if the user takes one up, hand off to the skill that owns that action (`rkit:today` for day-plan writes). No rkit skill owns column creation (`POST /day-plan-columns`), so the "create" offer has no handoff target — that is an uncovered case, listed in `references/day-plan-columns-api.md`. This skill never writes.
-- **Never ask before reading.** GETs execute immediately. Never use AskUserQuestion — the offers are literal reply lines, not prompts.
-- **No fan-out.** Two GETs in a fixed order — `GET /day-plans/today`, then `GET /day-plan-columns` — and, for done flows, one more `GET /day-plan-completions`. Never one call per date, per column, or per month.
-- **Board order everywhere.** `/day-plan-columns` returns columns already sorted by `position` — that is the Custom-tab order the user sees. Render columns in the order returned, in every reply. Within a column, render items in the order returned. The **Not categorized** group always renders *before* the first column, because that is where the Custom tab puts it.
+- **Read-only skill.** Reads only: `custom_columns`, `list_work_done` and, for one date, `sequence`. Never call a tool that writes. (`custom_columns` materializes today's plan server-side as part of serving it — idempotent, and exactly what the Custom tab triggers. That is the server populating a plan, not this skill writing.) The closing offers ("check anything off", "add anything new", "create") are conversational — if the user takes one up, hand off to the skill that owns that action (`rkit:today` for day-plan writes). No rkit skill owns column creation, and the connector has no tool to create, rename, reorder or archive a column, so the "create" offer has no handoff target — that is an uncovered case, listed in `references/day-plan-columns-api.md`. This skill never writes.
+- **Never ask before reading.** Reads execute immediately. Never use AskUserQuestion — the offers are literal reply lines, not prompts. Call the connector tools directly: never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
+- **No fan-out.** One `custom_columns` call and, for done flows, one `list_work_done` call (plus `sequence` only to read today's date for an extended window). Never one call per date, per column, or per month.
+- **Board order everywhere.** `custom_columns` returns the columns already in board order — the Custom-tab order the user sees. Render columns in the order returned, in every reply. Within a column, render items in the order returned. The **Not categorized** group always renders *before* the first column, because that is where the Custom tab puts it.
 
 ---
 
@@ -69,35 +64,24 @@ The done flows are a **separate branch**. They are entered by an explicit done a
 
 ## Flows
 
-### Shared step — fetch today's plan, then the columns
+### Shared step — read the columns
 
-Every flow starts here. **Two GETs, in this exact order.** This is the order the Custom tab itself issues, and the order is load-bearing.
+Every flow starts here. **One call:** `custom_columns`, no arguments. It reads today's plan first — which materializes it — and only then the columns. That is the order the Custom tab itself uses, and the order is load-bearing: the items embedded in the columns are scoped to today's plan, so columns read before anything has materialized that plan come back as **every column with `items: []`**, and the skill would report an empty board that is not empty. The tool does both, in that order; never replace it with another read of the plan or the columns.
 
-**1. Today's plan — always first.**
+It answers JSON `{columns, uncategorized}`:
 
-```bash
-"<api.sh path>" GET "/day-plans/today"
-```
+- `columns` — the active columns **already in board order**, each with `name` and its `items` in lane order; every item carries `name` and a `completed` flag.
+- `uncategorized` — the still-open items on today's plan that sit in no column (the leftmost lane of the Custom tab), in plan order. The tool computes this set difference; it is never computed here.
 
-**2. The columns — second.**
-
-```bash
-"<api.sh path>" GET "/day-plan-columns"
-```
-
-**Why the order matters.** `/day-plans/today` auto-creates and populates today's plan when it does not exist yet (idempotent `populateDayPlan` server-side). The items embedded in `/day-plan-columns` are scoped to today's plan, so on a fresh day — before anything has materialized that plan — calling `/day-plan-columns` first returns **every column with `items: []`**, and the skill reports an empty board that is not empty. Fetching today first is what prevents that. Never reverse them, and never skip step 1.
-
-**Issue them as two separate Bash calls, each a bare invocation** — exactly as written above. Do not chain them with `&&`, `;`, or a pipe; do not assign the path to a shell variable; do not wrap the call in `$( )`; do not append `echo`. The skill's `allowed-tools` permits only the bare `GET` form, and anything else is denied.
-
-Read today's items from `body.data.items` and today's date (`YYYY-MM-DD`, the caller's timezone) from `body.data.date` (step 1), and the columns from `body.data` (step 2). Then compute, once:
+Then compute, once:
 
 - **Open items in a column** = that column's `items` where `completed == false`. Completed items are dropped here, once, and are invisible to every open-item flow below.
-- **Not categorized** = today's items where `completed == false` **and** whose `id` does not appear in any column's `items[]`. It is a **set difference the caller computes** — no endpoint returns this bucket, and the Custom tab builds it the same way.
+- **Not categorized** = `uncategorized` (open items only already).
 - `TOTAL` = the Not categorized open count **plus** the open counts of all columns.
 
 Then:
 
-- `body.data` from `/day-plan-columns` is **empty** → run `no_columns`. Stop. Nothing else renders — not the columns, not the Not categorized group, not a single day-plan item.
+- `columns` is **empty** → run `no_columns`. Stop. Nothing else renders — not the columns, not the Not categorized group, not a single day-plan item.
 
 ---
 
@@ -329,16 +313,10 @@ The closing line offers **actions**, never more listing. A complete-list reply n
 
 ### whats_done
 
-Run the shared step (the columns response supplies board order and the empty-columns check), then fetch the completions for the default window — **no range params**, which the API answers as **today** in the caller's own timezone (there is no hidden multi-day window). A third bare Bash call:
-
-```bash
-"<api.sh path>" GET "/day-plan-completions"
-```
-
-Read completions from `body.data`. Then:
+Run the shared step (the `columns` answer supplies board order and the empty-columns check), then call `list_work_done` with **no arguments**, which answers **today** in the caller's own timezone (there is no hidden multi-day window). It answers a JSON list, most recent first; each completion has `item_id`, `name`, `completed_on` and `column` (`{id, name}`, or null). Then:
 
 - **A completion whose `column` is `null` goes into the `Not categorized` group** — *ruled by Scott 2026-08-03 (UI parity), not page-55-locked. This replaces the old interim "drop it" rule.* It renders as the **first** group, above every column, headed `Not categorized — N completed`, and it **is counted in `TOTAL`**. Nothing is dropped.
-- Group the rest by `column.name`. Order the groups by **board order** from `/day-plan-columns`, after the Not categorized group. Within a group keep the order returned (most recent first).
+- Group the rest by `column.name`. Order the groups by **board order** from `custom_columns`, after the Not categorized group. Within a group keep the order returned (most recent first).
 - `TOTAL` = every completion returned in the window, Not categorized included.
 - With no `column: null` completions in the window the Not categorized group does not render at all — no `— 0 completed` header — and the reply is byte-identical to the locked template.
 
@@ -377,14 +355,14 @@ Only groups with completions appear. There is **no** "These columns have no comp
 
 ### extend_done
 
-Only from a done offer. Re-fetch with the window the user named:
+Only from a done offer. Call `list_work_done` again with the window the user named:
 
-| The user says | Request | Window words in the header | Closing line |
+| The user says | Arguments | Window words in the header | Closing line |
 |---|---|---|---|
-| "3 months" | `GET /day-plan-completions?start=<START>&end=<END>` with `START` = `END` minus 3 months | `in the last 3 months` | `Would you like me to extend my search to the past 6 months?` |
-| "6 months" † | `GET /day-plan-completions?start=<START>&end=<END>` with `START` = `END` minus 6 months | `in the last 6 months` | *(none — the ladder ends)* |
+| "3 months" | `start` = `END` minus 3 months, `end` = `END` | `in the last 3 months` | `Would you like me to extend my search to the past 6 months?` |
+| "6 months" † | `start` = `END` minus 6 months, `end` = `END` | `in the last 6 months` | *(none — the ladder ends)* |
 
-`END` is today's date in the caller's timezone — take it from `body.data.date` from the `GET /day-plans/today` response the shared step already made, never from the machine clock. Both bounds are `YYYY-MM-DD` and inclusive. Compute `START` with `date -d "<END> -3 months" +%F` (`-6 months` for the 6-month row). **Never send `months`** — it is deprecated, and the API ignores it whenever `start`/`end` are present.
+`END` is today's date in the caller's timezone — take it from `sequence` (no arguments; it reads today's plan, which `custom_columns` already materialized): its answer opens `Day plan for YYYY-MM-DD (…)` or `Your day plan for YYYY-MM-DD is empty.` — use that date, never the machine clock. Both bounds are `YYYY-MM-DD` and inclusive. Compute `START` with `date -d "<END> -3 months" +%F` (`-6 months` for the 6-month row). **Never send `months`** — it is deprecated, and the tool ignores it whenever `start`/`end` are present.
 
 † The 6-month row is a **number-substitution inference, not locked**. Scenario 4b locks the 3-month window only — the header "in the last 3 months" and the closing "…the past 6 months?". The 6-month reply substitutes `6` into that same locked header phrase and closes with nothing, since no further extension is offered. Substitution only, never new wording.
 
@@ -424,7 +402,7 @@ Note the wording shift the spec locks: the default (today) reply offers "**the l
 
 ### no_columns
 
-`GET /day-plan-columns` returned `200` with an empty `data` array. One sentence, and nothing else — no summary, no total, no list of the user's day-plan items, and nothing that reads as an error:
+`custom_columns` answered an empty `columns` list. One sentence, and nothing else — no summary, no total, no list of the user's day-plan items, and nothing that reads as an error:
 
 ```
 I don't see that you've created any custom columns for organizing your day plan items yet. Would you like to learn how that can help you, or do you have some you'd like to create?
@@ -434,7 +412,7 @@ I don't see that you've created any custom columns for organizing your day plan 
 
 This same sentence is the answer whichever way the user asked, including a done ask — there are no columns to report on either way. **Inferred, not locked** — Scenario 5 locks this sentence only for "show me my columns and what's in each"; no scenario shows a done ask from an account with no columns. Reuse the locked sentence, never new wording.
 
-If the user takes up the "create" half of that offer, that is an **uncovered case** — no rkit skill owns `POST /day-plan-columns`, and this skill never writes. See "Cases the locked spec does not cover" in `references/day-plan-columns-api.md`.
+If the user takes up the "create" half of that offer, that is an **uncovered case** — no rkit skill owns column creation, the connector has no tool for it, and this skill never writes. See "Cases the locked spec does not cover" in `references/day-plan-columns-api.md`.
 
 ---
 
@@ -458,39 +436,39 @@ These hold in every reply. A reply that breaks one is wrong even if it looks rig
 8. **Done replies never say history is gone.** Never state or imply that completed history is cleared, deleted, expired, or unavailable. An empty or short window means the search window, not the record.
 9. **Months language is exact.** Default window: "today", closing "Would you like me to extend my search to the last 3 or 6 months?". After extending: "in the last 3 months", closing "Would you like me to extend my search to the past 6 months?".
 10. **The no-columns fallback lists nothing.** One sentence, verbatim, and no day-plan items.
-11. **Names render verbatim.** Column names and item names exactly as the API returns them — no trimming, re-casing, re-wrapping, truncating, or tidying.
-12. **Nothing is written.** The only calls this skill ever makes are `GET /day-plans/today`, `GET /day-plan-columns`, and `GET /day-plan-completions`. No other endpoint and no other verb, ever.
-13. **`/day-plans/today` is fetched first, always.** Open-item flows read it for the Not categorized set difference; every flow relies on it having materialized today's plan before `/day-plan-columns` is read. Reversing the order, or skipping it, produces empty columns on a fresh day — the exact defect this ordering exists to prevent.
+11. **Names render verbatim.** Column names and item names exactly as the tool returns them — no trimming, re-casing, re-wrapping, truncating, or tidying.
+12. **Nothing is written.** The only calls this skill ever makes are `custom_columns`, `list_work_done` and, for one date, `sequence`. No other tool, and no write, ever.
+13. **Today's plan is materialized before the columns are read, always.** `custom_columns` does it itself: open-item flows read its `uncategorized` for the Not categorized set, and every flow relies on today's plan having materialized before the columns are read. Substituting another read, or reading the columns without it, produces empty columns on a fresh day — the exact defect this ordering exists to prevent.
 14. **Every open item on today's plan is accounted for.** `TOTAL` equals the count of open items on today's plan. An item that is in no column appears under Not categorized; nothing is silently dropped.
 15. **Not categorized renders first.** Above every column, in the open-item flows and in the done flows alike. *(Invariants 14 and 15, and the Not categorized half of 1, 2 and 12–13: ruled by Scott 2026-08-03 for UI parity — not page-55-locked.)*
 
 ---
 
-## Error Handling
+## Errors
 
-| Status | Response |
+| The tool answers | Say |
 |---|---|
-| `error: NO_CONFIG` | "Config not found. Run `/rkit:setup` first." |
-| `error: NO_TOKEN` | "No API token. Run `/rkit:setup` to configure." |
-| `error: CURL_FAILED` | "Network error. Check your connection." |
-| `status: 401` | "Unauthorized. Run `/rkit:setup` to update your token." |
-| `status: 404` | "Not found." |
-| Other non-200 | Show status code and error message from the response body. |
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| any other `Error: …` | Show it as returned. |
 
-`200` with an empty `data` array is not an error. On `/day-plan-columns` it means `no_columns`.
+An empty `columns` list is not an error. It means `no_columns`.
 
-**api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
+---
+
+## Fallback (api.sh)
+
+None. Every read this skill makes has a connector tool, and the skill stays read-only: the connector has no tool to create, rename, reorder or archive a column, so those are not offered here (an uncovered case; see `references/day-plan-columns-api.md`).
 
 ---
 
 ## Out of scope
 
 - **Writes of any kind** — creating, renaming, archiving, or repositioning columns; adding, completing, moving, or removing items. Those live in other skills.
-- **The `column` / `column_id` filter** on `/day-plan-completions`. One unfiltered request already returns every column's completions carrying its column.
+- **The `column` / `column_id` filter** on `list_work_done`. One unfiltered request already returns every column's completions carrying its column.
 - **"Help me organize my todos" routing** (Scenario Family 2 on page 55) — deferred, not specced, build nothing for it.
 
 ## References
 
-- [Day Plan Columns — Endpoint Reference](references/day-plan-columns-api.md) — all three reads, the fixed call order, the Not categorized set-difference rule, live-verified field names, the window→param mapping, and the cases the locked spec does not cover.
-- [ResultMaps V2 API Reference](references/api-reference.md) — the whole V2 surface, including the write verbs on `/day-plan-columns` that this skill never calls. `/day-plan-completions` is **not** in the master yet; it is documented only in `references/day-plan-columns-api.md`.
+- [Day Plan Columns — Endpoint Reference](references/day-plan-columns-api.md) — the REST reads behind the tools, the fixed call order, the Not categorized set-difference rule, live-verified field names, the window→param mapping, and the cases the locked spec does not cover.
+- [ResultMaps V2 API Reference](references/api-reference.md) — the whole V2 surface, including the write verbs on `/day-plan-columns` that this skill never uses. `/day-plan-completions` is **not** in the master yet; it is documented only in `references/day-plan-columns-api.md`.
 - Binding BDD: https://resultkit.ai/pages/55 — 8 scenarios, locked 2026-08-02. Never edit it.

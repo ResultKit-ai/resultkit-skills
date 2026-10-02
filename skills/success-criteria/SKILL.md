@@ -9,20 +9,21 @@ allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(pandoc *), Bash(npx *), 
 
 Grade and rewrite the Success Criteria of a process document. Criteria describe the world *after* the work; the checklist describes the work. Most weak criteria are checklist steps that drifted upstairs.
 
+ResultKit pages go through the ResultKit connector's MCP tools, named below by base name: the full tool name is `mcp__<server>__<tool>` and the server alias varies by install, so match on the base name. Every page job has a live connector tool, so `scripts/api.sh` is not used.
+
 ## Current State
 
 - Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
-- api.sh: !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/success-criteria/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/success-criteria/scripts/api.sh "$HOME/.claude/skills/rkit:success-criteria/scripts/api.sh" "$HOME/.agents/skills/success-criteria/scripts/api.sh" "$HOME/.gemini/skills/success-criteria/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 - Today: !`date +%F`
 
 ## Rules
 
 - **Grade before you rewrite.** Show the verdict table first, then the rewritten set. The author needs to see *why* a line failed, not just a better line.
-- **Confirm writes.** Before any POST/PATCH/DELETE, summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation. GET requests execute immediately.
-- **Archive before overwriting.** Never PATCH a page body without first creating a dated archive copy — see Flow: Apply to a ResultKit Page.
+- **Confirm writes.** Before any page write (create or update), summarize all planned changes in a single prompt and ask for confirmation. Batch related mutations under one confirmation. Reads execute immediately.
+- **Archive before overwriting.** Never update a page body without first creating a dated archive copy — see Flow: Apply to a ResultKit Page.
 - **The author's words win.** Preserve intent and domain vocabulary. If they say "sublot", "Razor", "settlement", the rewrite says it too. You are tightening their criteria, not substituting yours.
 - **Concise output.** Table, then the rewritten set. No preamble, no reciting the rules back at them.
-- **Direct execution.** Use Bash with api.sh for all API calls. Never use Task agents.
+- **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool.
 
 ## The Seven Rules
 
@@ -43,23 +44,26 @@ Grade every criterion against all seven. Full rubric with examples: `references/
 | *(pasted criteria)* | Grade and rewrite in the reply |
 | `{page_id}` or a `resultkit.ai/pages/{id}` URL | Read the page, grade its Success section, propose a rewrite |
 | `{path/to/doc.md}` | Read the local doc, grade its Success section |
-| `write {page_id}` / "apply it" after a review | Archive the page, then PATCH the rewritten section |
+| `write {page_id}` / "apply it" after a review | Archive the page, then update the rewritten section |
 | `new "{process name}"` | Interview for the end state, draft 3–6 criteria |
 | *(no args)* | Ask which criteria — page ID, file path, or paste |
+
+## Tools
+
+| Job | Tool and arguments |
+|---|---|
+| Find a page (unknown ID, or the team's Archive page) | `list_pages`: `team_id`. Answers the team's pages as a flat list: `id`, `title`, `parent_id`, `position`, `can_edit`. |
+| Read a page as markdown | `get_page`: `team_id`, `page_id`, `markdown: true`. Answers `title`, `body`, `can_edit`. |
+| Create the archive copy | `create_page`: `team_id`, `title`, `body`, `parent_id`, `markdown: true`. Answers the new page's `id`, not its body. |
+| Update the page | `update_page`: `page_id`, `team_id`, `body`, `markdown: true`. Answers the saved page's `id`, not its body. |
 
 ---
 
 ## Flow: Obtain the Criteria
 
-Pasted text and local files need no API call — read them as-is. For a ResultKit page, resolve the team from args or `default_team_id` (neither → "No team specified and no default configured. Run `/rkit:setup`."):
+Pasted text and local files need no tool call — read them as-is. For a ResultKit page, resolve the team from args or `default_team_id` (neither → "No team specified and no default configured. Run `/rkit:setup`."), then call `get_page` with `markdown: true` (unknown ID → `list_pages` for the team first, and pick the page from the list).
 
-```bash
-API_SH="<api.sh path>"
-RESPONSE=$("$API_SH" GET "/teams/TEAM_ID/pages/PAGE_ID?format=markdown")   # unknown ID → GET /teams/TEAM_ID/pages first
-echo "$RESPONSE"
-```
-
-`?format=markdown` returns `body.data.body` as markdown — the stored source for a markdown-authored page, converted from HTML otherwise. Take the Success section — the heading matching "Success", "Results Look Like", or "Definition of Done", plus the list beneath it — and note `can_edit` before offering to apply anything. No Success section anywhere → say so and offer to draft one from the checklist.
+`markdown: true` returns `body` as markdown — the stored source for a markdown-authored page, converted from HTML otherwise. Take the Success section — the heading matching "Success", "Results Look Like", or "Definition of Done", plus the list beneath it — and note `can_edit` before offering to apply anything. No Success section anywhere → say so and offer to draft one from the checklist.
 
 ## Flow: Grade
 
@@ -101,51 +105,32 @@ Only on explicit request. Two writes, one confirmation.
 
 > Replace the Success section of **{title}** ({page_id})? A dated copy is archived first as **{title} — {YYYY-MM-DD}** under **Archive** ({archive_page_id}). {n} criteria in, {m} out. Nothing else on the page changes.
 
-**Step 2 — Archive.** Find the team's archive page in the tree (top-level, titled "Archive" or similar); if there isn't one, ask before creating it rather than inventing tree structure.
+**Step 2 — Archive.** Find the team's archive page in the tree (top-level, titled "Archive" or similar) with `list_pages`; if there isn't one, ask before creating it rather than inventing tree structure. Then `create_page` with `title` = `"{title} — {Today}"`, `body` = the current markdown body, `parent_id` = the archive page's ID, `markdown: true`. The answer must name the new page's `id` before Step 3 — if the archive write fails, stop and report; never update an unarchived page.
 
-```bash
-DATE=$(date +%F)
-PAYLOAD=$(jq -n --arg t "TITLE — $DATE" --arg b "CURRENT_MARKDOWN_BODY" --argjson p ARCHIVE_PAGE_ID \
-  '{title: $t, body: $b, parent_id: $p}')
-"$API_SH" POST "/teams/TEAM_ID/pages?format=markdown" "$PAYLOAD"
-```
-
-A 201 is required before Step 3 — if the archive write fails, stop and report; never PATCH an unarchived page.
-
-**Step 3 — Patch.** Send markdown as-is with `?format=markdown` — no local conversion — and splice the new section into the existing body rather than replacing the page.
-
-```bash
-BODY=$(cat "REWRITTEN_FULL_PAGE.md")
-PAYLOAD=$(jq -n --arg body "$BODY" '{body: $body}')
-"$API_SH" PATCH "/teams/TEAM_ID/pages/PAGE_ID?format=markdown" "$PAYLOAD"
-```
-
-Read the current body back with `GET "/teams/TEAM_ID/pages/PAGE_ID?format=markdown"` so you are splicing into markdown, not HTML. A write's response carries no `body` — confirm by the `id` it names.
+**Step 3 — Update.** Send markdown as-is with `markdown: true` — no local conversion — and splice the new section into the existing body rather than replacing the page. Read the current body back with `get_page` (`markdown: true`) so you are splicing into markdown, not HTML, then `update_page` with the full spliced markdown as `body`. A write's answer carries no body — confirm by the `id` it names.
 
 Report: "Updated **{title}** ({page_id}). Archived as {archive_id}."
 
-## Error Handling
+## Errors
 
-api.sh wraps every response as `{"status": N, "body": {...}}` — always read fields via `.body.…`.
-
-- `"error": "NO_CONFIG"` / `"NO_TOKEN"` → "Config not found. Run `/rkit:setup` first."
-- `"error": "CURL_FAILED"` → "Network error. Check your connection."
-- `status: 400` → show the validation message (empty title, title > 255, body > 100KB).
-- `status: 401` → "Unauthorized (401). Run `/rkit:setup` to update your token."
-- `status: 403` → "You don't have permission — editing needs an author/editor/contributor role on the page."
-- `status: 404` → "Team or page not found (404)."
+| The tool answers | Say |
+|---|---|
+| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| "Title cannot be empty", "Title cannot exceed 255 characters", "Body cannot exceed 2MB" | Show the validation message. |
+| "You do not have permission to …" a page | "You don't have permission — editing needs an author/editor/contributor role on the page." |
+| "Page not found", "Team not found or you don't have access to it." | "Team or page not found (404)." |
+| "This page is locked", any other `Error: …` | Show it as returned. |
 
 ## Edge Cases
 
-- **api.sh not found**: "api.sh not found. Install via: `/plugin marketplace add ResultKit-ai/resultkit-skills` then `/plugin install rkit@resultkit`"
 - **No Success section**: offer to draft one from the checklist — criteria are usually the last step of each checklist phase, restated as a state.
 - **One criterion**: not a failure on its own, but ask what the next seat receives; rule 5 almost always surfaces a second.
 - **Policy dressed as a criterion** ("we always double-check"): ask what artifact proves it, then rewrite around that artifact.
 - **`can_edit: false`**: grade and hand back the rewrite as text; don't offer to apply it.
-- **No converter installed**: irrelevant — markdown goes to the API as-is. Never hand the rewrite back and refuse the write for a missing pandoc or npx.
+- **No converter installed**: irrelevant — markdown goes to the page tool as-is. Never hand the rewrite back and refuse the write for a missing pandoc or npx.
 
 ## References
 
 - [The Seven Rules — full rubric](references/rules.md) — why each rule matters, good/bad pairs, and a worked before/after of a whole criteria set. Read it when the user wants the reasoning, is training someone, or pushes back on a verdict.
 - [Stack-model process docs](references/stack-model.md) — the section order these criteria sit in, and how Success relates to the checklist and to handoffs. Read it when working in a stack-model doc and a structure question comes up.
-- [ResultMaps V2 API Reference](references/api-reference.md) — see the **Pages** section for full payloads and the permission model (author > editor > contributor > viewer).
+- [ResultMaps V2 API Reference](references/api-reference.md) — see the **Pages** section for the permission model (author > editor > contributor > viewer).

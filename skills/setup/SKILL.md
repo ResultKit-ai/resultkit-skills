@@ -23,6 +23,18 @@ allowed-tools: Bash(curl *), Bash(jq *), Bash(mkdir -p *), Read, Glob, Grep, Wri
 - **Direct execution**: Use Bash for all API calls. Never use Task agents or subagents.
 - **Never reconfigure to switch accounts.** If someone holds two logins, add a profile — see below. Rewriting `config.json` to move between orgs is the failure this replaced.
 
+## Connector sign-in is separate from this token
+
+MCP surfaces (claude.ai, and the ResultKit connector in Claude Code at `https://mcp.resultkit.ai`)
+authenticate by OAuth sign-in at the connector, not with the API token this skill saves; the
+connector does not accept it. An authorization error from a connector tool means signing in at the
+connector again; updating this token will not fix it.
+
+This token is what `scripts/api.sh` sends, so it stays required for every job that runs through
+`api.sh`, including the **Fallback** jobs of skills that call the connector first. The two logins
+are independent: `RESULTKIT_PROFILE` and `RESULTKIT_CONFIG` choose the account `api.sh` uses and
+never change the connector's account.
+
 ## Multiple accounts (profiles)
 
 One person can hold logins to more than one ResultMaps org — a consultant with their own
