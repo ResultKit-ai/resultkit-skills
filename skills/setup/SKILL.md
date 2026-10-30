@@ -30,6 +30,9 @@ authenticate by OAuth sign-in at the connector, not with the API token this skil
 connector does not accept it. An authorization error from a connector tool means signing in at the
 connector again; updating this token will not fix it.
 
+The rkit plugin ships that connector (server `resultkit` in `plugin.json`), so installing the
+plugin adds it to Claude Code; sign in once by running `/mcp` and authenticating the `resultkit` server.
+
 This token is what `scripts/api.sh` sends, so it stays required for every job that runs through
 `api.sh`, including the **Fallback** jobs of skills that call the connector first. The two logins
 are independent: `RESULTKIT_PROFILE` and `RESULTKIT_CONFIG` choose the account `api.sh` uses and
