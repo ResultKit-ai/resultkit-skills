@@ -15,7 +15,8 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:concepts` | ResultMaps product and domain concept reference. |
 | `rkit:headlines` | View and manage EOS headlines (People & Customer Headlines) for a team. |
 | `rkit:level10` | View and manage EOS Level 10 meeting artifacts — to-dos, issues, and headlines. |
-| `rkit:meetings` | Build and refresh a local ResultMaps team, project, and 1:1 IDs reference doc. |
+| `rkit:meetings` | Find your 1:1s and team meetings by a loose name; the meetings part of `rkit:my-setup`. |
+| `rkit:my-setup` | Ask anything about your own companies, teams, projects and 1:1s by a loose name; it finds the right one and reads the answer. |
 | `rkit:open` | Open anything in ResultKit in your browser, or get the right link for it. |
 | `rkit:organize` | Organize to-dos from a Level 10, 1-on-1, day plan or My Work into a project's columns without taking them off where they live. |
 | `rkit:pages` | List, read, create, update, move, and delete team Pages (the wiki/docs tree); show, filter by, add, or remove page labels; lock, unlock, or check whether a page is locked. |

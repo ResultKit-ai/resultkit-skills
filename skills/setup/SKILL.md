@@ -7,6 +7,8 @@ allowed-tools: Bash(curl *), Bash(jq *), Bash(mkdir -p *), Read, Glob, Grep, Wri
 
 # rkit:setup
 
+This skill handles login, token and default team only. For questions about what is in your ResultKit (companies, teams, projects, 1:1s), use `/rkit:my-setup`.
+
 ## Current State
 
 - Config status: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING"; fi`
