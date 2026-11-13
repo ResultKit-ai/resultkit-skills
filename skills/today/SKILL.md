@@ -1,6 +1,6 @@
 ---
 name: rkit:today
-description: View and manage today's day plan — the committed list on your Personal Planner (also called the Prioritizer), what you've decided to do. Interprets user intent and routes to the correct API action. Use this skill when users mention their day plan, daily tasks, personal planner, prioritizer, today's items, checking off tasks, adding tasks to today, or want to manage what they're working on today or any specific date.
+description: View and manage today's day plan — the committed list on your Personal Planner (also called the Prioritizer), what you've decided to do. Interprets user intent and routes to the correct API action. Use this skill when users mention their day plan, daily tasks, personal planner, prioritizer, today's items, checking off tasks, adding tasks to today, reordering today's plan (move a to-do to the top, to the bottom, or after another), or want to manage what they're working on today or any specific date.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(date *), Read, Glob, Grep, AskUserQuestion
 ---
@@ -21,7 +21,7 @@ A single skill that handles all day plan operations by interpreting user intent 
 - **Concise output.** Tables and short summaries. No filler.
 - **Direct execution.** Call the connector tools directly. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
 - **Date argument.** For today, omit `date` (today's plan is created on demand and recurring to-dos are filled in). Pass `date` as `YYYY-MM-DD` only for another day — never today's date.
-- **IDs.** `sequence` returns no IDs, so views have no ID column. If the user asks for IDs, or names an item without giving its ID, use the Fallback plan read.
+- **IDs.** `sequence` links each name to `https://resultkit.ai/items/{id}`; the id is the number at the end. Views show names, no ID column. If the user asks for IDs, or a name has no link, use the Fallback plan read.
 
 ---
 
@@ -31,6 +31,7 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 | Triggers | Intent | Tool/Flow |
 |---|---|---|
+| "reorder my day", "reorder my plan", "move {name} to the top / bottom of my day", "move {name} up / down", "make {name} first today", "put {name} after {other}", "prioritize {name}" | Change the order of today's plan | Reorder |
 | "show must items", "show priority only", "must priority only", "hide deferred", "not deferred and completed" | View a filtered plan | Fallback: filtered plan |
 | "show my day", "what's on today", "daily plan", "day plan", "what do I have today", "show today", "my plan", "today's items", "what's planned", "show {date}", "prioritizer", "tasks for today", "hide done", "hide completed" | View day plan items with completion status | `sequence` |
 | "add to today", "create a task", "new item", "add to my plan", "add to plan", "plan this for", "add to tomorrow", "put on my day", "add a to-do", "create to-do" | Create a new item on a day plan | `add_to_work_plan` |
@@ -48,7 +49,7 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 ## View: `sequence`
 
-Call `sequence` (add `date` only for another day). It answers text: `Day plan for DATE (done/total completed):`, then one `- [ ] name` or `- [x] name` line per entry in plan order. For "hide done" / "hide completed", drop the `[x]` lines. A date with no plan answers "No day plan found for this date."; an empty plan answers "Your day plan for DATE is empty."
+Call `sequence` (add `date` only for another day). It answers text: `Day plan for DATE (done/total completed):`, then one `- [ ] [name](…/items/{id})` or `- [x] [name](…/items/{id})` line per entry in plan order (show the name only). For "hide done" / "hide completed", drop the `[x]` lines. A date with no plan answers "No day plan found for this date."; an empty plan answers "Your day plan for DATE is empty."
 
 ```
 ## Day Plan — {date_label}
@@ -67,7 +68,7 @@ Call `sequence` (add `date` only for another day). It answers text: `Day plan fo
 
 ## Writes
 
-Confirm first, then call the tool. After create, attach, complete, undo or remove, show the updated plan (`sequence`, same date). Pass `date` only for another day.
+Confirm first, then call the tool. After create, attach, complete, undo, remove or reorder, show the updated plan (`sequence`, same date). Pass `date` only for another day.
 
 | Flow | Tool and arguments | Confirm | On success |
 |---|---|---|---|
@@ -76,7 +77,15 @@ Confirm first, then call the tool. After create, attach, complete, undo or remov
 | complete | `mark_done`: `todo_or_issue` = ID | Mark item **{id}** as complete? | Item **{id}** marked complete. |
 | undo | `update_item`: `todo_or_issue` = ID, `status` = `not_started` | Mark item **{id}** as incomplete? | Item **{id}** marked incomplete. |
 | remove | `remove_from_work_plan`: `todo` = ID, `date?` | Remove item **{id}** from {date_label}'s plan? (Item will still exist in your items.) | Item **{id}** removed from {date_label}'s plan. |
+| reorder | `resequence_my_work`: `todo` = ID, and `to` = `top` or `bottom`, or `after` = ID (today only; no `date`) | Move **{name}** to {the top / the bottom / right after **{other}**} of today's plan? | The answer: "…is now first / last / right after … on today's plan." "…is already first / last / right after…" changed nothing: say so, not an error. |
 | comment | `add_item_comment`: `todo_or_issue` = ID, `body` | Add comment to item **{id}**: "{text}" Proceed? | Comment added (ID: {comment_id}) to item **{id}**: "{text}" |
+
+### Reorder
+
+1. **Connector first.** If `sequence` and `resequence_my_work` are missing or answer an authorization error, give the connect sentence under Errors and stop, before any other call.
+2. **Which to-do, and where.** To-do + top/first, bottom/last or after {other} is complete. "up" / "down" alone is one place; "before {other}" is right after the entry above it (top when it is first). "reorder my day", or no to-do named, gets one question — "Which to-do, and where — top, bottom, or after another?" — and stop; never answer a reorder with the plan alone. Only today's plan can be reordered; for another day say so.
+3. **Find the ids.** Read today's plan (`sequence`; the Fallback plan read when a name has no link) and match names to its entries (exact, then contains, ignoring case; several matches: ask which). A name that is not on the plan: say "{name} is not on today's plan." and stop. Never attach it.
+4. **Confirm** with the Writes row's sentence. On no, say nothing was moved and make no call. On yes, call `resequence_my_work`, then show the plan.
 
 `list_item_comments` (`todo_or_issue` = ID) answers JSON `{total, comments: [{id, body, author, created_at, updated_at}]}`. Show `| ID | Author | Comment | Time |`, strip HTML from `body`, add `(edited)` when `updated_at` is later than `created_at`. None: "No comments on item {id}."
 
@@ -97,7 +106,7 @@ api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` fi
 ## How to Interpret
 
 1. Look for trigger phrases in the table. Extract an **item ID** (integer: "415", "item 415", "#415"), a **date** (convert to `YYYY-MM-DD` using Today above), a **name** (quoted text, or text after "add"/"create") and a **completion intent** ("done", "undo", "check", "uncheck").
-2. An ID with "add"/"attach"/"put" means attach; a name means create. With no clear write intent, view the plan.
+2. An ID with "add"/"attach"/"put" means attach; a name means create. A position word (top, bottom, first, last, up, down, before, after) or "reorder" means reorder, even when the message also says "today" or "my day". With no clear write intent, view the plan.
 3. **Dates:** nothing or "today" = omit `date`. "tomorrow", "yesterday", "Monday", "next Tuesday", "Feb 20" = that day as `YYYY-MM-DD`.
 
 ## Errors
@@ -106,6 +115,7 @@ api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` fi
 |---|---|
 | tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
 | "No day plan found…", "Day plan not found" | "No plan exists for {date}." Only today's plan is created on demand. |
+| "…not on today's plan…" (a reorder refused) | "{name} is not on today's plan." It was not moved or added. |
 | "Item not in…" | "Item {id} not found on {date_label}'s plan." |
 | "…not found or you don't have access…", "Item not found" | "Item {id} not found." |
 | "Invalid date…" | Say the date is not a real day and ask for another. |
