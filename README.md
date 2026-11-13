@@ -19,7 +19,7 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:my-setup` | Ask anything about your own companies, teams, projects and 1:1s by a loose name; it finds the right one and reads the answer. |
 | `rkit:open` | Open anything in ResultKit in your browser, or get the right link for it. |
 | `rkit:organize` | Organize to-dos from a Level 10, 1-on-1, day plan or My Work into a project's columns without taking them off where they live. |
-| `rkit:pages` | List, read, create, update, move, and delete team Pages (the wiki/docs tree); show, filter by, add, or remove page labels; lock, unlock, or check whether a page is locked. |
+| `rkit:pages` | Read a page from its id or link (no team needed); list, create, update, move, and delete team Pages (the wiki/docs tree); show, filter by, add, or remove page labels; lock, unlock, or check whether a page is locked. |
 | `rkit:password-reset` | Trigger a password reset email for a user (admin only). |
 | `rkit:profile` | View your profile stats, measurables, rocks, feedback, and progress dashboard. |
 | `rkit:projects` | List active projects for a team and manage project items. |

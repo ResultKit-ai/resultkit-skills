@@ -53,7 +53,7 @@ Grade every criterion against all seven. Full rubric with examples: `references/
 | Job | Tool and arguments |
 |---|---|
 | Find a page (unknown ID, or the team's Archive page) | `list_pages`: `team_id`. Answers the team's pages as a flat list: `id`, `title`, `parent_id`, `position`, `can_edit`. |
-| Read a page as markdown | `get_page`: `team_id`, `page_id`, `markdown: true`. Answers `title`, `body`, `can_edit`. |
+| Read a page as markdown | `get_page`: `page_id`, `markdown: true` — no team needed. Answers `title`, `body`, `team_id` (the page's own team), `can_edit`. |
 | Create the archive copy | `create_page`: `team_id`, `title`, `body`, `parent_id`, `markdown: true`. Answers the new page's `id`, not its body. |
 | Update the page | `update_page`: `page_id`, `team_id`, `body`, `markdown: true`. Answers the saved page's `id`, not its body. |
 
@@ -61,7 +61,7 @@ Grade every criterion against all seven. Full rubric with examples: `references/
 
 ## Flow: Obtain the Criteria
 
-Pasted text and local files need no tool call — read them as-is. For a ResultKit page, resolve the team from args or `default_team_id` (neither → "No team specified and no default configured. Run `/rkit:setup`."), then call `get_page` with `markdown: true` (unknown ID → `list_pages` for the team first, and pick the page from the list).
+Pasted text and local files need no tool call — read them as-is. For a ResultKit page, call `get_page` with the `page_id` and `markdown: true` — no team named (a `resultkit.ai/pages/{id}` link gives the id) — and keep the answer's `team_id` for the archive and update calls below. No id → `list_pages` for the team in args or `default_team_id` (neither → "No team specified and no default configured. Run `/rkit:setup`.") and pick the page from the list.
 
 `markdown: true` returns `body` as markdown — the stored source for a markdown-authored page, converted from HTML otherwise. Take the Success section — the heading matching "Success", "Results Look Like", or "Definition of Done", plus the list beneath it — and note `can_edit` before offering to apply anything. No Success section anywhere → say so and offer to draft one from the checklist.
 

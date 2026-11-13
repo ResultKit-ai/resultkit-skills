@@ -1,6 +1,6 @@
 ---
 name: rkit:pages
-description: List, read, create, update, move, and delete team Pages (the team wiki/docs tree); show, filter, add, or remove labels on pages; and lock, unlock, or check the lock state of a page, via the ResultMaps API. Use this skill when users ask about pages, team docs, team wiki, team notes, want to list pages, open or read a page, create a new page or doc, write content to a page, rename a page, move or nest a page under another, reorder pages, delete a page, show a page's labels, list pages by label, filter pages that carry a label, label or tag a page, remove/unlabel a page's label, lock a page, unlock a page, unlock a page for themselves, re-lock a page for themselves, make a page read-only, or check whether a page is locked.
+description: Read a page from its id or a resultkit.ai/pages link ("read page 90200") — its title, body and the name of the team it lives on (the connector's own answer gives only a team number), with no team needed; load this skill for every page read. Also list, create, update, move, and delete team Pages (the team wiki/docs tree); show, filter, add, or remove labels on pages; and lock, unlock, or check the lock state of a page, via the ResultMaps API. Use this skill when users ask about pages, team docs, team wiki, team notes, want to list pages, open or read a page (by its id or link), create a new page or doc, write content to a page, rename a page, move or nest a page under another, reorder pages, delete a page, show a page's labels, list pages by label, filter pages that carry a label, label or tag a page, remove/unlabel a page's label, lock a page, unlock a page, unlock a page for themselves, re-lock a page for themselves, make a page read-only, or check whether a page is locked.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Bash(pandoc *), Bash(npx *), Read, Glob, Grep, AskUserQuestion
 ---
@@ -11,7 +11,7 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 
 ## Current State
 
-- Config: !`if [ -f "$HOME/.config/resultkit/config.json" ] && jq empty "$HOME/.config/resultkit/config.json" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$HOME/.config/resultkit/config.json"; else echo "MISSING — run /rkit:setup"; fi`
+- Config: !`C="${RESULTKIT_CONFIG:-$HOME/.config/resultkit/config.json}"; if [ -f "$C" ] && jq empty "$C" 2>/dev/null; then echo "EXISTS"; jq '{token_masked: (.api_token[:3] + "..." + .api_token[-4:]), default_team_id, api_base}' "$C"; else echo "MISSING — run /rkit:setup"; fi`
 - api.sh (Fallback only): !`echo "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/pages/scripts/api.sh}" | xargs -I{} sh -c '[ -f "{}" ] && echo "{}" && exit 0; for p in "$HOME/.claude/plugins/cache/"*/rkit/*/skills/pages/scripts/api.sh "$HOME/.claude/skills/rkit:pages/scripts/api.sh" "$HOME/.agents/skills/pages/scripts/api.sh" "$HOME/.gemini/skills/pages/scripts/api.sh" "scripts/api.sh"; do [ -f "$p" ] && echo "$p" && exit 0; done; echo "NOT_FOUND"'`
 
 ## Rules
@@ -32,7 +32,7 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 |-------|----------|-------------|
 | *(no args)* | List pages for default team as a tree | `list_pages` |
 | `{team_id}` | List pages for specified team | `list_pages` |
-| `{page_id}` or `read {page_id}` | Show a single page (title + rendered body) | `get_page` |
+| `{page_id}`, `read {page_id}`, or a `resultkit.ai/pages/{id}` link | Show a single page (title, the team it lives on, rendered body) — no team needed | `get_page` |
 | `create "title"` | Create a top-level page (empty body unless content given) | `create_page` |
 | `create "title" under {parent_id}` | Create a nested page | `create_page` |
 | `write {page_id} <file-or-content>` | Set a page's body from a markdown file or inline text | Inline: `update_page`. File: Fallback |
@@ -43,7 +43,7 @@ Team-scoped hierarchical document pages ("team wiki"). Pages form a tree via `pa
 | `restore {page_id}` | Restore a soft-deleted page | `restore_page` |
 | `lock {page_id}` / `unlock {page_id}` | Lock / unlock a page for everyone (confirms first) | Fallback: lock |
 | `unlock {page_id} for me` / `relock {page_id} for me` | Personally unlock a locked page, just for the caller / undo that (confirms first) | Fallback: lock |
-| `{page_id} locked?` | Report whether a page is locked, and for whom (read-only, no confirm) | Fallback: check lock |
+| `{page_id} locked?` | Report whether a page is locked, and for whom (read-only, no confirm) | `get_page` |
 | `labels`, `{team_id} labels`, `under {parent_id} labels` | List pages as a tree, each with its labels | `list_pages`, then Fallback |
 | `{page_id} labels` | Show one page's labels only | Fallback |
 | `labeled "name"`, `{team_id} labeled "name"`, `under {parent_id} labeled "name"` | List pages carrying that label (flat, with IDs) | `list_pages`, then Fallback |
@@ -72,7 +72,7 @@ Tip: `/rkit:pages read {id}` to open · `/rkit:pages create "title" under {id}` 
 
 ## Flow: Read a Page
 
-Call `get_page` with `team_id`, `page_id` and `markdown: true` (leave `markdown` out to see the raw HTML). Markdown is the stored source, byte-for-byte, for a page that was written as markdown; converted from HTML for one that wasn't. Show title, id, parent (title if known), and the body as returned. Note `can_edit`/`can_delete` if the user is about to modify. If `locked` is true, say so — and whether the caller holds a personal unlock (`unlocked_for_me`) — so a blocked edit isn't a surprise.
+Call `get_page` with `page_id` and `markdown: true` (leave `markdown` out to see the raw HTML) — **no `team_id`, and no `list_teams` or `list_pages` first**: the page says which team owns it, and the connector checks the caller's rights against that team. A page link (`https://resultkit.ai/pages/{id}`) is read the same way, from the number in it. Markdown is the stored source, byte-for-byte, for a page that was written as markdown; converted from HTML for one that wasn't. Show title, id, the team it lives on, parent (title if known), and the body as returned. The answer names the owning team by `team_id` only — once the page is read, call `get_team` once with it and show the team's name ("Team: **{name}** ({team_id})"); if `get_team` is refused, show "Team {team_id}". Note `can_edit`/`can_delete` if the user is about to modify. If `locked` is true, say so — and whether the caller holds a personal unlock (`unlocked_for_me`) — so a blocked edit isn't a surprise.
 
 ## Flow: Create a Page
 
@@ -116,9 +116,8 @@ The connector has no live tool for these jobs (none locks, unlocks or labels a p
 | Body from a local file (`write {page_id} <file>`, or a create with file content) | `BODY=$(cat "FILE.md")`; `PAYLOAD=$(jq -n --arg body "$BODY" '{body: $body}')`; `PATCH /teams/TEAM_ID/pages/PAGE_ID?format=markdown` with `$PAYLOAD`. Create: `jq -n --arg title "TITLE" --arg body "$BODY" '{title: $title, body: $body}'` (nested: add `--argjson parent PARENT_ID` and `parent_id: $parent`), `POST /teams/TEAM_ID/pages?format=markdown`; 201 → "Created page **{id}**: {title} (saved as markdown)". For HTML send the user's HTML unchanged and drop `?format=markdown`. |
 | Whether the caller may create pages in a team | `GET /teams/TEAM_ID/settings` → `can_create_pages` |
 | Page permissions (share, grant/revoke editor, list roles; page author or team admin) | the **Pages** section of `references/api-reference.md`, `/pages/{id}/permissions` |
-| A page by id alone (title, real `team_id`, `locked`, `unlocked_for_me`, `can_edit`), and the lock check | `GET /pages/PAGE_ID` (team-agnostic — the team-scoped read 404s for a page on another team). `get_page` also answers `locked`, `unlocked_for_me` and `can_edit` when the page's team is already known. |
 
-**Check lock** (`{page_id} locked?` and any plain "is this page locked" question; read-only, no confirm), from `body.data`:
+**Check lock** (`{page_id} locked?` and any plain "is this page locked" question; read-only, no confirm): `get_page` with `page_id` alone, then from its answer:
 - `locked: false` → "Page **{id}: {title}** is not locked."
 - `locked: true`, `unlocked_for_me: true` → "Page **{id}: {title}** is locked for the team, but you hold a personal unlock — you can still edit it."
 - `locked: true`, `unlocked_for_me: false`, `can_edit: true` → "Page **{id}: {title}** is locked. You can unlock it for everyone (`/rkit:pages unlock {id}`) or just for yourself (`/rkit:pages unlock {id} for me`)."
@@ -128,7 +127,7 @@ The connector has no live tool for these jobs (none locks, unlocks or labels a p
 
 Covers "lock this page", "lock the doc", "make it read-only" (→ lock); "unlock it" with no "for me" (→ global unlock); "unlock for me", "let me edit the locked page" (→ personal unlock); "re-lock for me" (→ personal re-lock). Plain "unlock" is the **global** lock — it reopens the page for everyone with edit rights. "Unlock for me" leaves the global lock in place and grants the caller a **personal** unlock instead. "Re-lock for me" undoes that personal unlock only; it never touches the global lock.
 
-1. **Load** `PAGE=$("$API_SH" GET "/pages/PAGE_ID")`: title from `PAGE.body.data.title`; the page's real `team_id` from `PAGE.body.data.team_id` (this is `TEAM_ID` below); state from `.locked` and `.unlocked_for_me`.
+1. **Load** `get_page` with `page_id` alone: title from `title`; the page's real `team_id` from `team_id` (this is `TEAM_ID` below); state from `locked` and `unlocked_for_me`.
 2. **Then, per the table:** if the page is already in the asked state, say so and stop — no write; otherwise confirm, execute, and report from the response.
 
 | Command | No-op when | Confirm | Call | Report |
@@ -152,7 +151,7 @@ PERSONAL_LABELS=$("$API_SH" GET "/custom-labels?scope=personal")  # the caller's
 
 **List pages with labels** (`labels`, `{team_id} labels`, `under {parent_id} labels`, `{page_id} labels`):
 
-1. **Scope.** `under {parent_id}` → `GET /pages/PARENT_ID` for the parent's title and `team_id`, then `list_pages` for that team and take the parent plus every descendant. `{team_id}` → every page in that team. Neither → `default_team_id`, every page in it. Build the tree as in List Pages, narrowed to the scope. Scope over 50 pages → "Fetching labels for {n} pages is {n} API calls — proceed?" and wait for yes.
+1. **Scope.** `under {parent_id}` → `get_page` with `page_id` = the parent, for its title and `team_id`, then `list_pages` for that team and take the parent plus every descendant. `{team_id}` → every page in that team. Neither → `default_team_id`, every page in it. Build the tree as in List Pages, narrowed to the scope. Scope over 50 pages → "Fetching labels for {n} pages is {n} API calls — proceed?" and wait for yes.
 2. **Labels.** One call per page in scope: `GET /custom-labels/content?labeled_type=Page&labeled_id=PAGE_ID`; collect `.body.data.attached_labels[].name`.
 3. **Display** the same tree with labels in brackets; a page with none shows no bracket:
    ```
@@ -163,7 +162,7 @@ PERSONAL_LABELS=$("$API_SH" GET "/custom-labels?scope=personal")  # the caller's
 
    {count} pages
    ```
-   For `{page_id} labels` (one page, no tree): `GET /pages/PAGE_ID` for the title, then the content call; one line — `{id} {title}  [{names}]`, or "No labels." when `attached_labels` is empty.
+   For `{page_id} labels` (one page, no tree): `get_page` for the title, then the content call; one line — `{id} {title}  [{names}]`, or "No labels." when `attached_labels` is empty.
 
 **Filter pages by label** (`labeled "name"`, `{team_id} labeled "name"`, `under {parent_id} labeled "name"`): resolve the scope as above and the name to an `id` against that scope's team. No match → stop; never fall through to an unfiltered list. Same 50-call gate, then the content call for every page in scope. Show a flat list of only the pages whose `attached_labels` include the id, with all of each page's labels for context:
 
@@ -179,7 +178,7 @@ None → "No pages {in team {team_id} / under {parent_id}} carry the label \"{na
 
 **Label / unlabel a page** (`label {page_id} "name"`, `unlabel {page_id} "name"`):
 
-1. **Load** `PAGE=$("$API_SH" GET "/pages/PAGE_ID")` (title, real `team_id`) and `CURRENT=$("$API_SH" GET "/custom-labels/content?labeled_type=Page&labeled_id=PAGE_ID")` (current ids from `CURRENT.body.data.attached_labels[].id`).
+1. **Load** `get_page` with `page_id` alone (title, real `team_id`) and `CURRENT=$("$API_SH" GET "/custom-labels/content?labeled_type=Page&labeled_id=PAGE_ID")` (current ids from `CURRENT.body.data.attached_labels[].id`).
 2. **Resolve** the name per **Label name → ID resolution**, scoped to the page's own `team_id`.
 3. **No-ops** — stop, no write: `label` with the id already attached → "Page **{id}: {title}** already has **{name}**."; `unlabel` with it not attached → "Page **{id}: {title}** doesn't have **{name}**."
 4. **Confirm:** "Add label **{name}** to page **{id}: {title}**?" (or "Remove label **{name}** from page **{id}: {title}**?")
@@ -196,9 +195,9 @@ None → "No pages {in team {team_id} / under {parent_id}} carry the label \"{na
 
 | The tool answers | Say |
 |---|---|
-| tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
-| "You do not have permission to view pages in this team" | "You don't have permission to view pages in team {team_id}." |
-| "Page not found" | "Team or page not found." — also what you get for a page outside your audience, or one that's been deleted. |
+| tools missing, or an authorization error | Say exactly "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." — nothing more: no setup advice, and no api.sh attempt at a page read. |
+| "You do not have permission to view pages in this team" | Say it as the connector does — "You do not have permission to view pages in this team." — and show nothing of the page. |
+| "Page not found" | "Page not found." — also what you get for a page outside your audience, one that's been deleted, or (with a team named) a page on another team. |
 | "You do not have permission to edit this page" | "You don't have permission — editing needs an author/editor/contributor role on the page, or team admin." |
 | "You do not have permission to delete this page" or "…restore this page" | "Deleting or restoring needs the page's author role or team admin." |
 | "Team not found or you don't have access to it." (`create_page`) | "You can't create pages in team {team_id} — the team may be set to `admins_only`, or you're not a member." |
