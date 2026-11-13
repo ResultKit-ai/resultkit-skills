@@ -1,6 +1,6 @@
 ---
 name: rkit:1on1
-description: View and manage one-on-one meetings. Shows meetings with items grouped by column (next, done, blocked). Use this skill when users mention 1:1s, one-on-ones, 1-on-1 meetings, want to see their one-on-one agenda, add items to a 1:1, or manage items in a one-on-one meeting.
+description: View and manage one-on-one meetings. Shows meetings with items grouped by column (next, done, blocked). Use this skill when users mention 1:1s, one-on-ones, 1-on-1 meetings, want to see their one-on-one agenda, add items to a 1:1, reorder a one-on-one's To-Dos or Issues (move one to the top, to the bottom, or after another), or manage items in a one-on-one meeting.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQuestion
 ---
@@ -34,6 +34,7 @@ Parse the user input to determine which flow to follow:
 | `{meeting_id} done` | View Done Items (dedicated endpoint) |
 | `{meeting_id} done --since YYYY-MM-DD` | View Done Items with Date Filter |
 | `{meeting_id} move {item_id} {column}` | Move Item |
+| "move {name} to the top / bottom of my 1-on-1 with {person}", "put {name} after {other}", "make {name} first", "move {name} up" | Reorder |
 | `{meeting_id} add "text"` | Add New Item |
 | `{meeting_id} add {item_id}` | Add Existing Item |
 | `{meeting_id} remove {item_id}` | Remove Item |
@@ -43,6 +44,8 @@ Parse the user input to determine which flow to follow:
 | `{meeting_id} edit comment {comment_id} "text"` | Edit My Comment |
 | `{meeting_id} delete comment {comment_id}` | Delete My Comment |
 | `--team {id}` *(anywhere in args)* | Override team ID for any flow |
+
+A position word (top, bottom, first, last, up, down, before, after) with names is a Reorder — never an add or a column move; an add says "add".
 
 If the input doesn't match any pattern, show this usage summary and ask what they'd like to do.
 
@@ -140,6 +143,7 @@ Confirm first, then call the tool. Names and ids in the success lines come from 
 | Flow | Tool and arguments | Confirm | On success |
 |---|---|---|---|
 | Move Item (`{meeting_id} move {item_id} {column}`) | `move_on_1on1`: `meeting_id`, `todo_or_issue`, `section` (`next` → `todos`, `blocked` → `issues`, `done` → `done`) | Move item **{item_name}** (ID: {item_id}) from **{current_column}** to **{target_column}**? | Moved **{item_name}** (ID: {item_id}) to **{target_column}**. |
+| Reorder (see Reorder below) | `resequence_on_1on1`: `meeting_id`, `todo_or_issue` = ID, and `to` = `top` or `bottom`, or `after` = ID; never a section | Move **{item_name}** to {the top / the bottom / right after **{other_name}**} of the {To-Dos / Issues}? | The answer: "…is now first / last / right after … in the To-Dos / Issues of 1-on-1 …". "…is already first / last / right after…" changed nothing: say so, not an error. |
 | Add new item (`{meeting_id} add "text"`) | `add_1on1_todo` (default column `next`) or `add_1on1_issue` (blocked): `meeting_id`, `name`, `description?` | Add **"{text}"** to one-on-one {meeting_id}? | Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}. |
 | Add existing item (`{meeting_id} add {item_id}`) | `place_on_1on1`: `meeting_id`, `todo_or_issue` | Add **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}? | Added **{item_name}** (ID: {item_id}) to one-on-one {meeting_id}. |
 | Remove Item (`{meeting_id} remove {item_id}`) | `remove_from_1on1`: `meeting_id`, `todo_or_issue` | Remove item {item_id} from one-on-one {meeting_id}? (Item will still exist — only detached from this meeting.) | Removed item {item_id} from one-on-one {meeting_id}. |
@@ -150,6 +154,13 @@ Confirm first, then call the tool. Names and ids in the success lines come from 
 - **Add**: a quoted string creates a new item, a number adds an existing one. For a new item pass `description` (HTML body) when the user provides one; a new item straight into the done column is a Fallback job. For an existing item call `get_item` first (not found → "Item {item_id} not found.").
 - **Notes**: empty or missing text → "Please provide note content. Example: `/rkit:1on1 {id} notes \"Discussion about Q2 goals\"`" and stop.
 - **Comment**: empty text → "Comment text cannot be empty." Comments target the item directly, not the meeting — the `meeting_id` prefix is only this skill's own addressing convention, kept consistent with `move`/`add`/`remove`. A participant of this 1-on-1 can comment on an item shared to it even without ordinary view access to the item — the connector grants that fallback specifically for 1:1 participants.
+
+### Reorder
+
+1. **Connector first.** If `get_1on1` and `resequence_on_1on1` are missing or answer an authorization error, answer exactly the connect sentence under Errors, with no other words, and stop, before any other call. Reorder has no api.sh fallback.
+2. **Which 1-on-1, which one, where.** The 1-on-1 is an id or a person's name matched to `With` in `list_1on1s` (several matches: ask which). One + top/first, bottom/last or after {other} is complete. "up" / "down" alone is one place; "before {other}" is right after the entry above it (top when it is first). No one named, or no place: ask "Which to-do or issue, and where — top, bottom, or after another?" and stop.
+3. **Find the ids.** `get_1on1`: match names to its items (exact, then contains, ignoring case; several matches: ask which). `items.next` is the To-Dos and `items.issues` the Issues; whichever holds it is the list — never ask which list, never pass a section. A name not on the 1-on-1: "{name} is not on this 1-on-1." and stop. One in `items.done`: "{name} is done, and Done is read newest first by completion date and has no order to set." and stop. {other} not in {name}'s list: "The to-do or issue to place it after is not in the {To-Dos / Issues} of this 1-on-1." and stop. In these cases make no call, say the sentence as written, and offer nothing else.
+4. **Confirm** with the Writes row's sentence. On no, say nothing was moved and make no call. On yes, call `resequence_on_1on1`, then call `get_1on1` and show that one list in its new order, as in View Single Column.
 
 ## Flow: List Comments on an Item
 
@@ -184,6 +195,7 @@ api.sh errors: `NO_CONFIG` or `NO_TOKEN` "Config not found. Run `/rkit:setup` fi
 |---|---|
 | tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
 | "1-on-1 not found or you don't have access to it." | "Meeting {id} not found." |
+| "…has no order to set.", "…to place it after is not in…", "Give either to or after, not both.", "Say where to put it…", "A to-do or issue cannot be placed after itself." (a reorder refused) | Say it as returned; nothing was moved. |
 | "To-do or issue not found or you don't have access to it." | "Item {id} not found." (one sentence now covers the old 403 "Not authorized to comment on this item.") |
 | "Team not found or you don't have access to it." / "You don't have access to this team." | "Team {id} not found, or you don't have access to it." |
 | "A comment cannot be blank." | "Comment text cannot be empty." |
