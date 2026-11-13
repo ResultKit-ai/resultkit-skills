@@ -6,7 +6,7 @@ Base URL: `https://api.resultmaps.com/api/v2`
 Web App: `https://resultkit.ai` — Web URL column values are paths relative to this base. NEVER link users to the legacy `app.resultmaps.com` UI.
 Auth: Bearer token in `Authorization` header (handled by `scripts/api.sh`). Find your token at https://resultkit.ai/customize.
 
-This reference covers only the three reads `rkit:columns` uses. The skill is **read-only** — it issues GETs and nothing else. Verified live against production on 2026-08-03 (all three endpoints returned 200).
+This reference covers the three reads `rkit:columns` uses, then the one write, the move (last section). The skill issues GETs and, after a yes, that one move. The reads were verified live against production on 2026-08-03 (all three endpoints returned 200).
 
 ---
 
@@ -236,5 +236,21 @@ The 8 locked scenarios at https://resultkit.ai/pages/55 are law. These situation
 6. **Every column empty of open items.** No scenario shows a summary where no column has an open item. The templates still substitute mechanically — a `0` total, an empty top list, every column under "These columns have no open items:", and the locked drill-in offer that now has nothing to drill into.
 7. **The 6-month header.** Scenario 4b locks "in the last 3 months" for the 3-month window. The 6-month window substitutes the number into that same phrase — "in the last 6 months" — and closes with nothing, since no further extension is offered. Substitution only, no new wording.
 8. **A completion whose `column` is `null`.** ~~Open question.~~ **RULED by Scott 2026-08-03 — no longer an uncovered case.** The live endpoint returns them, and often — 3 of 5 in the live data on 2026-08-03. They render under a **`Not categorized`** group, placed **first**, above every column, and they **are counted in the total**. Nothing is dropped. This is the same UI-parity ruling that put the Not categorized lane at the front of the open-item flows; it mirrors the Custom tab, where the uncategorized lane is leftmost. It replaces the previous interim "drop it" rule, which made the reply understate what the user had finished. Not page-55-locked — the locked fixtures carry no `column: null` completion, so no locked template is affected, and with none in the window the reply is byte-identical to the locked one.
-9. **The user takes up the "create" offer after Scenario 5.** The locked no-columns sentence ends by offering to create columns, but nothing is specced past that point and **no rkit skill owns `POST /day-plan-columns`** — `rkit:columns` is read-only, and the create/rename/archive/reposition verbs documented in the sibling [`api-reference.md`](api-reference.md) have no skill behind them. Which skill should own them, and what that reply reads like, is a spec question for Scott. **Interim behavior:** the request is uncovered — do not write, and do not improvise a create flow inside this skill.
+9. **The user takes up the "create" offer after Scenario 5.** The locked no-columns sentence ends by offering to create columns, but nothing is specced past that point and **no rkit skill owns `POST /day-plan-columns`** — creating, renaming, reordering and archiving a column are done in the app, and the create/rename/archive/reposition verbs documented in the sibling [`api-reference.md`](api-reference.md) have no skill behind them. Which skill should own them, and what that reply reads like, is a spec question for Scott. **Interim behavior:** the request is uncovered — do not write, and do not improvise a create flow inside this skill.
 10. **An ambiguous follow-up to the summary.** The summary offers two paths ("the 3 from each" / "the complete list"); no scenario covers a reply that clearly answers the offer but picks neither cleanly. This skill never uses AskUserQuestion and no locked template supplies a clarifying question, so asking is not available. **Interim behavior:** route to the closest matching flow. A follow-up that stays genuinely unresolvable is an uncovered case, and what should happen then is a spec question for Scott.
+
+---
+
+## The move — `move_to_custom_column` (connector tool, L10 243376; BDD page 2428)
+
+Arguments: `todo` (integer id) and `column` (the column's name, case-insensitive; the leftmost if two share a name). Backed by `POST /day-plan-columns/drop-action`. Ids come from `custom_columns` (`columns[].items[].id`, `uncategorized[].id`); a to-do not on today's plan has no id there. The to-do lands at the bottom of the column and leaves the one it sat in; name, due date, labels and done stay as they were. Answers, read from resultmaps-api2 `day-plan-column-move-tool.ts` and checked live 2026-11-13 (the two refusals; the success is not run against a real board):
+
+| Case | Answer |
+|---|---|
+| moved | `[name](https://resultkit.ai/items/{id}) is now in "{column}".` |
+| already there | `[name](…) is already in "{column}".` (nothing changes; not an error) |
+| not on today's plan | `Error: [name](…) is not on today's plan, so it was not moved. Put it there first with attach_to_work_plan.` |
+| no such column | `Error: You have no column named "X". Your custom columns: "A", "B".` (none: `You have no custom columns.`); no column is created |
+| no such to-do, or not visible | `Error: To-do not found or you don't have access to it.` |
+
+The skill checks column and plan membership itself from the one `custom_columns` read and says so in words before any call; the tool's refusals are the backstop. Evals: `skills/columns-workspace/move/` (stand-in connector, as for the reorder).

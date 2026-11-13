@@ -11,7 +11,7 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:1on1` | View and manage one-on-one meetings, with items grouped by column. |
 | `rkit:board` | View any item's children as a kanban-style board of columns and items. |
 | `rkit:braindump` | Parse unstructured text — notes, emails, dictation — into organized action items. |
-| `rkit:columns` | Read your Day Plan Prioritizer's custom columns and what's open or done in each. |
+| `rkit:columns` | Read your Day Plan Prioritizer's custom columns and what's open or done in each, and move a to-do on today's plan into one of them. |
 | `rkit:concepts` | ResultMaps product and domain concept reference. |
 | `rkit:headlines` | View and manage EOS headlines (People & Customer Headlines) for a team. |
 | `rkit:level10` | View and manage EOS Level 10 meeting artifacts — to-dos, issues, and headlines. |

@@ -1,6 +1,6 @@
 ---
 name: rkit:columns
-description: Day Plan Columns — read the custom columns on the Custom tab of your Personal Planner (also called the Prioritizer) — which columns you have, what's open in each, and what you've completed in them. Use this skill whenever someone asks about their day plan columns, custom columns, planner columns, or planner buckets — "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns", "what's done in my columns", "what have I completed in my columns". Follow-ups inside an already-open columns conversation ("the 3 from each", "the complete list", "the rest of {column}", "3 months", "6 months") are routed by this skill's Tool Routing Table once it is loaded — they are deliberately not listed here, because on their own they say nothing about columns. Read-only — it never adds, completes, moves, renames, or deletes anything.
+description: Day Plan Columns — read the custom columns on the Custom tab of your Personal Planner (also called the Prioritizer) — which columns you have, what's open in each, and what you've completed in them — and move one to-do on today's plan into one of those columns. Use this skill whenever someone asks about their day plan columns, custom columns, planner columns, or planner buckets — "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns", "what's done in my columns", "what have I completed in my columns"; and, to move a to-do, "move {to-do} into {column}", "move {to-do} to {column}", "put {to-do} in {column}", "file {to-do} under {column}", "move a to-do to another column". Follow-ups inside an already-open columns conversation ("the 3 from each", "the complete list", "the rest of {column}", "3 months", "6 months") are routed by this skill's Tool Routing Table once it is loaded — they are deliberately not listed here, because on their own they say nothing about columns. Its one write is that move; it never adds, completes, renames or deletes anything, and creating, renaming, reordering and archiving a column are done in the app.
 # NOTE: this skill must stay model-invocable — the locked BDD (https://resultkit.ai/pages/55) has the user invoke it by typing a plain sentence. Never add `disable-model-invocation` here.
 user-invocable: true
 allowed-tools: Bash(*/skills/columns/scripts/api.sh GET *), Bash(jq *), Read, Glob, Grep
@@ -9,19 +9,19 @@ allowed-tools: Bash(*/skills/columns/scripts/api.sh GET *), Bash(jq *), Read, Gl
 # verified 2026-08-03 that it is denied. `*/skills/columns/scripts/api.sh GET *` matches every
 # install location (plugin cache, $CLAUDE_PLUGIN_ROOT, ./skills/..., ./.claude/skills/...), matches
 # both the bare and the relative form, and denies both another script's path and any verb other than
-# GET — so the read-only invariant is enforced at the permission layer, not just by prose.
+# GET — so api.sh can only read, enforced at the permission layer, not just by prose (the move is a connector tool, not api.sh).
 ---
 
 # rkit:columns
 
-Reads the Personal Planner's day-plan custom columns. **Read-only.** It drives the ResultKit connector's MCP tools (`custom_columns`, `list_work_done` and, for one date, `sequence`); `scripts/api.sh` has no job here (see **Fallback**). Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
+Reads the Personal Planner's day-plan custom columns, and moves one to-do on today's plan into one of them (BDD: https://resultkit.ai/pages/2428). It drives the ResultKit connector's MCP tools (`custom_columns`, `list_work_done`, for one date `sequence`, and `move_to_custom_column`); `scripts/api.sh` has no job here (see **Fallback**). Tools are named below by base name: the full name is `mcp__<server>__<tool>`, and the server alias varies by install.
 
 ## Rules
 
 - **The templates are law.** Every reply below is locked wording — https://resultkit.ai/pages/55, 8 scenarios locked 2026-08-02. Reproduce the wording, punctuation, blank lines, and ordering exactly. Substitute counts and names; change nothing else. No preamble, no sign-off, no extra commentary, no headings, no bold, no item IDs, no dates, no emoji.
 - **Emit as plain lines**, not inside a code fence and not as a table. The fences below mark where each template starts and stops.
-- **Read-only skill.** Reads only: `custom_columns`, `list_work_done` and, for one date, `sequence`. Never call a tool that writes. (`custom_columns` materializes today's plan server-side as part of serving it — idempotent, and exactly what the Custom tab triggers. That is the server populating a plan, not this skill writing.) The closing offers ("check anything off", "add anything new", "create") are conversational — if the user takes one up, hand off to the skill that owns that action (`rkit:today` for day-plan writes). No rkit skill owns column creation, and the connector has no tool to create, rename, reorder or archive a column, so the "create" offer has no handoff target — that is an uncovered case, listed in `references/day-plan-columns-api.md`. This skill never writes.
-- **Never ask before reading.** Reads execute immediately. Never use AskUserQuestion — the offers are literal reply lines, not prompts. Call the connector tools directly: never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
+- **One write: the move.** Reads: `custom_columns`, `list_work_done` and, for one date, `sequence`. The only write is `move_to_custom_column`, called from the `move` flow after a yes — never from a read flow, never without the yes. (`custom_columns` materializes today's plan server-side as part of serving it — idempotent, and exactly what the Custom tab triggers. That is the server populating a plan, not this skill writing.) The closing offers ("check anything off", "add anything new") are conversational — if the user takes one up, hand off to the skill that owns that action (`rkit:today` for day-plan writes). Creating, renaming, reordering and archiving a column are done in the app; the connector has no tool for them, so the "create" offer has no handoff target — an uncovered case, listed in `references/day-plan-columns-api.md`.
+- **Never ask before reading.** Reads execute immediately. Never use AskUserQuestion — the offers are literal reply lines, not prompts, and the move's confirmation is a plain question in the reply. Call the connector tools directly: never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
 - **No fan-out.** One `custom_columns` call and, for done flows, one `list_work_done` call (plus `sequence` only to read today's date for an extended window). Never one call per date, per column, or per month.
 - **Board order everywhere.** `custom_columns` returns the columns already in board order — the Custom-tab order the user sees. Render columns in the order returned, in every reply. Within a column, render items in the order returned. The **Not categorized** group always renders *before* the first column, because that is where the Custom tab puts it.
 
@@ -33,6 +33,7 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 
 | Triggers | Intent | Flow |
 |---|---|---|
+| "move {to-do} into {column}", "move {to-do} to {column}", "put {to-do} in {column}", "file {to-do} under {column}", "move a to-do to another column" — any ask to put a to-do in a column, whatever the verb | Move one to-do on today's plan into a custom column | `move` |
 | "show me my columns", "show me my columns and what's in each", "what's in my columns", "what's in each column", "list my columns", "show custom columns", "show planner columns", "what are my planner buckets", "my day plan columns" | Summary of columns with open counts | `summary` |
 | "the 3 from each", "the 3 from each column", "3 from each", "show me the 3" — **only** as a reply to the summary offer in this session | Drill in — first 3 open per column | `three_from_each` |
 | "the complete list", "the complete list from each", "the full list", "everything", "all of them", "the complete list from every column" — **only** as a reply to the summary offer in this session | Drill in — every open item per column | `complete_list` |
@@ -40,7 +41,7 @@ Match the user's message against the **Triggers** column. Pick the first matchin
 | "3 months", "the last 3 months", "6 months", "the past 6 months", "extend it", "go back further" — **only** as a reply to a done offer | Completions, extended window | `extend_done` |
 | "the rest of {column}" — **only** as a reply to a truncated `three_from_each` | Not locked by any scenario | `rest_of_column` |
 
-**Cold entry.** Only two rows can fire with no prior columns reply in this session — `summary` (Scenarios 1 and 5) and `whats_done` (Scenario 4). Those are the locked cold entries. Any other columns-related ask arriving cold, including one shaped like a drill-in follow-up, runs `summary` first — it is the only locked cold entry into the open-item ladder. The four session-guarded rows never fire on their own: with no reply for them to answer, a bare "the 3 from each", "the complete list", "everything", "all of them", "the rest of X", "3 months", or "6 months" is not a trigger for this skill at all.
+**Cold entry.** Three rows can fire with no prior columns reply in this session — `summary` (Scenarios 1 and 5), `whats_done` (Scenario 4) and `move`, which names its own to-do and column. The first two are the locked cold entries. Any other columns-related ask arriving cold, including one shaped like a drill-in follow-up, runs `summary` first — it is the only locked cold entry into the open-item ladder. The four session-guarded rows never fire on their own: with no reply for them to answer, a bare "the 3 from each", "the complete list", "everything", "all of them", "the rest of X", "3 months", or "6 months" is not a trigger for this skill at all.
 
 **Never ask which option the user meant.** This skill never uses AskUserQuestion, and no locked scenario supplies a clarifying-question template. Route an ambiguous follow-up to the closest matching flow. If it is genuinely unresolvable, it is an uncovered case — see "Cases the locked spec does not cover" in `references/day-plan-columns-api.md`.
 
@@ -56,6 +57,8 @@ summary ──┬─→ three_from_each ──(only if a column was truncated, w
           └─→ complete_list ──→ (ends the ladder — offers actions, never more listing)
 
 whats_done ──→ extend_done (3 months) ──→ extend_done (6 months)
+
+move ──→ (a yes) ──→ complete_list
 ```
 
 The done flows are a **separate branch**. They are entered by an explicit done ask only — never offered from the summary or drill-in replies, and never mixed into them.
@@ -400,6 +403,22 @@ Note the wording shift the spec locks: the default (today) reply offers "**the l
 
 ---
 
+### move
+
+Puts one to-do on today's plan into one of the user's custom columns, through `move_to_custom_column` (`todo` = the to-do's id, `column` = the column's name). It lands at the bottom of the column and leaves the one it sat in; nothing else about it changes. The wording below is this skill's own — page 55 locks only the reads.
+
+1. **Connector first.** If `custom_columns` or `move_to_custom_column` is missing, or answers an authorization error, give the Errors sentence and stop, before any other call.
+2. **Which to-do, which column.** Take both from the message. If either is missing ("move a to-do to another column"), ask for what is missing in one line — `Which to-do, and which column?` — and stop. A view of the columns is never the whole answer to a move. ("up", "down", "to the top of my day" are reorders: `rkit:today`.)
+3. **Read once — the shared step.** Every item in `columns[].items` and in `uncategorized` carries its `id` and `name`: that is where the id comes from. Match the to-do by name (exact first, then contains, ignoring case; several matches: list them and ask which) and the column by `columns[].name` (ignoring case). An id or an `…/items/{id}` link typed by the user is used as given.
+4. **Say what is wrong, in words, and stop — no write:**
+   - the to-do is in no column and not in `uncategorized` → `{name} is not on today's plan.` Never attach or add it; if she wants it on the plan, that is `rkit:today`.
+   - no column of that name → `You have no column named "{typed}". Your columns: "A" and "B".` (names verbatim, in board order; with none: `You have no custom columns.`). Never create one.
+   - it already sits in that column → `{name} is already in "{column}".`
+5. **Confirm.** `Move {name} into "{column}"?` — or, when it sits in a column now, `Move {name} from "{current}" into "{column}"?` Then wait. On **no**: `Okay, nothing was moved.` and make no call. On **yes**: call `move_to_custom_column` with `todo` = the id and `column` = the column's name exactly as `custom_columns` returned it.
+6. **Answer, then show the columns.** The tool answers `[{name}](…) is now in "{column}".`; reply with one line, `{name} is now in "{column}".`, a blank line, then the `complete_list` reply (one more `custom_columns` call) — the to-do now sits under its column and no longer among Not categorized or its old column. An `Error: …` answer: show it as returned, and stop.
+
+---
+
 ### no_columns
 
 `custom_columns` answered an empty `columns` list. One sentence, and nothing else — no summary, no total, no list of the user's day-plan items, and nothing that reads as an error:
@@ -412,7 +431,7 @@ I don't see that you've created any custom columns for organizing your day plan 
 
 This same sentence is the answer whichever way the user asked, including a done ask — there are no columns to report on either way. **Inferred, not locked** — Scenario 5 locks this sentence only for "show me my columns and what's in each"; no scenario shows a done ask from an account with no columns. Reuse the locked sentence, never new wording.
 
-If the user takes up the "create" half of that offer, that is an **uncovered case** — no rkit skill owns column creation, the connector has no tool for it, and this skill never writes. See "Cases the locked spec does not cover" in `references/day-plan-columns-api.md`.
+If the user takes up the "create" half of that offer, that is an **uncovered case** — creating a column is done in the app, and the connector has no tool for it, so there is no handoff target. See "Cases the locked spec does not cover" in `references/day-plan-columns-api.md`.
 
 ---
 
@@ -437,7 +456,7 @@ These hold in every reply. A reply that breaks one is wrong even if it looks rig
 9. **Months language is exact.** Default window: "today", closing "Would you like me to extend my search to the last 3 or 6 months?". After extending: "in the last 3 months", closing "Would you like me to extend my search to the past 6 months?".
 10. **The no-columns fallback lists nothing.** One sentence, verbatim, and no day-plan items.
 11. **Names render verbatim.** Column names and item names exactly as the tool returns them — no trimming, re-casing, re-wrapping, truncating, or tidying.
-12. **Nothing is written.** The only calls this skill ever makes are `custom_columns`, `list_work_done` and, for one date, `sequence`. No other tool, and no write, ever.
+12. **The only write is the move.** The calls this skill makes are `custom_columns`, `list_work_done`, for one date `sequence`, and `move_to_custom_column` — the last only from `move`, after a yes, once per yes. No other write, ever.
 13. **Today's plan is materialized before the columns are read, always.** `custom_columns` does it itself: open-item flows read its `uncategorized` for the Not categorized set, and every flow relies on today's plan having materialized before the columns are read. Substituting another read, or reading the columns without it, produces empty columns on a fresh day — the exact defect this ordering exists to prevent.
 14. **Every open item on today's plan is accounted for.** `TOTAL` equals the count of open items on today's plan. An item that is in no column appears under Not categorized; nothing is silently dropped.
 15. **Not categorized renders first.** Above every column, in the open-item flows and in the done flows alike. *(Invariants 14 and 15, and the Not categorized half of 1, 2 and 12–13: ruled by Scott 2026-08-03 for UI parity — not page-55-locked.)*
@@ -449,6 +468,8 @@ These hold in every reply. A reply that breaks one is wrong even if it looks rig
 | The tool answers | Say |
 |---|---|
 | tools missing, or an authorization error | "The ResultKit connector isn't connected. Connect it (https://mcp.resultkit.ai) and try again." |
+| a move answers `…is not on today's plan…` | `{name} is not on today's plan.` Nothing was moved or added. |
+| a move answers `…is already in "{column}"` | Say so; nothing changed, and it is not an error. |
 | any other `Error: …` | Show it as returned. |
 
 An empty `columns` list is not an error. It means `no_columns`.
@@ -457,13 +478,14 @@ An empty `columns` list is not an error. It means `no_columns`.
 
 ## Fallback (api.sh)
 
-None. Every read this skill makes has a connector tool, and the skill stays read-only: the connector has no tool to create, rename, reorder or archive a column, so those are not offered here (an uncovered case; see `references/day-plan-columns-api.md`).
+None. Every call this skill makes has a connector tool. Creating, renaming, reordering and archiving a column are done in the app: the connector has no tool for them, so they are not offered here (an uncovered case; see `references/day-plan-columns-api.md`).
 
 ---
 
 ## Out of scope
 
-- **Writes of any kind** — creating, renaming, archiving, or repositioning columns; adding, completing, moving, or removing items. Those live in other skills.
+- **Creating, renaming, reordering or archiving a column, and ordering to-dos inside a column** — done in the app.
+- **Adding, completing or removing a to-do, and reordering today's plan** — `rkit:today`.
 - **The `column` / `column_id` filter** on `list_work_done`. One unfiltered request already returns every column's completions carrying its column.
 - **"Help me organize my todos" routing** (Scenario Family 2 on page 55) — deferred, not specced, build nothing for it.
 
@@ -472,3 +494,4 @@ None. Every read this skill makes has a connector tool, and the skill stays read
 - [Day Plan Columns — Endpoint Reference](references/day-plan-columns-api.md) — the REST reads behind the tools, the fixed call order, the Not categorized set-difference rule, live-verified field names, the window→param mapping, and the cases the locked spec does not cover.
 - [ResultMaps V2 API Reference](references/api-reference.md) — the whole V2 surface, including the write verbs on `/day-plan-columns` that this skill never uses. `/day-plan-completions` is **not** in the master yet; it is documented only in `references/day-plan-columns-api.md`.
 - Binding BDD: https://resultkit.ai/pages/55 — 8 scenarios, locked 2026-08-02. Never edit it.
+- Move BDD: https://resultkit.ai/pages/2428 — Scenarios S1–S9; the connector tool is `move_to_custom_column` (L10 243376).
