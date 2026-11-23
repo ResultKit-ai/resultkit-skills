@@ -1,13 +1,13 @@
 ---
 name: rkit:projects
-description: List active projects for a team and manage project items. View project columns with item counts, add items to specific columns, and batch-add multiple items. Use this skill when users ask about projects, project boards, project columns, want to list team projects, add items to a project, or view project status.
+description: List active projects for a team and manage project items. View project columns with item counts, add items to specific columns, batch-add multiple items, and move things on a project — a to-do to another column or another project, a column to a new place in its project or to another project. Use this skill whenever users want to move a to-do or a column on a project — "move Draft launch email to Doing", "put X at the top of Doing", "move X to Ideas on Content Workflow", "move this to another project", "move the Backlog column", "move the Shipped column to the front" — or ask about projects, project boards, project columns, want to list team projects, add items to a project, or view project status. It finds a project by name on your default team, so no team ID or project ID is needed first.
 user-invocable: true
 allowed-tools: Bash(scripts/api.sh *), Bash(jq *), Read, Glob, Grep, AskUserQuestion
 ---
 
 # rkit:projects
 
-List active projects for a team. Drill into a project to see its columns and add items. It drives the ResultKit connector's MCP tools, named below by base name (the full name is `mcp__<server>__<tool>`; the server alias varies by install). `scripts/api.sh` is used only for the jobs under **Fallback (api.sh)**.
+List active projects for a team. Drill into a project to see its columns, add items, and move a to-do or a column. It drives the ResultKit connector's MCP tools, named below by base name (the full name is `mcp__<server>__<tool>`; the server alias varies by install). `scripts/api.sh` is used only for the jobs under **Fallback (api.sh)**.
 
 ## Current State
 
@@ -19,7 +19,7 @@ List active projects for a team. Drill into a project to see its columns and add
 - **Confirm writes.** Reads execute immediately. Before any write, summarize all planned changes in a single prompt and ask for confirmation. If the command implies multiple related mutations, batch them under one confirmation.
 - **Show IDs.** Always include project and item IDs in output (this overrides the connector's general "never print raw ids" note).
 - **Concise output.** Tables and short summaries. No filler.
-- **Direct execution.** Call the connector tools directly. Fallback jobs use Bash with api.sh. Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
+- **Direct execution.** Call the connector tools directly. Fallback jobs use Bash with api.sh (a move is never one of them). Never use Task agents, never curl or hand-build a URL, and skip the connector's `guide` tool — the routing below is complete for this skill.
 - **Two-level shape.** A project's direct children are usually **columns / section names**, not to-dos. The actual to-dos are **grandchildren** under those columns. A minority of projects are flat checklists (items as direct children, no columns). Never present direct children as to-dos without first checking. `project_columns` returns the top-level rows with their children nested; for a flat checklist those top-level rows are the to-dos. See the **Project Hierarchy** section in `references/api-reference.md` for detection (its calls are REST calls: run them through api.sh).
 
 ## Argument Parsing
@@ -33,6 +33,10 @@ List active projects for a team. Drill into a project to see its columns and add
 | `{project_id} columns` | Show columns (direct children) of a project | `project_columns` |
 | `{project_id} add "item name"` | Add an item to a project column (prompts for column if not specified) | `project_columns`, then `create_item` |
 | `{project_id} add {column_id} "item name"` | Add an item directly to a specific column | `create_item` |
+| "move X to Doing", "put X at the top/bottom of Doing", "put X after Y in Doing" *(any verb, to-do or item)* | Move a to-do to another column of its project, or to a place in a column | `projects`, `project_columns`, then `move_project_item` |
+| "move X to Ideas on Content Workflow", "move X to another project" *(+ onto a project, naming no column)* | Move a to-do to a column of another project, or onto that project in no column | `projects`, `project_columns`, then `move_project_item` |
+| "move the Shipped column to the front", "put the Backlog column after Doing" | Move a column to a new place in its own project | `projects`, `project_columns`, then `move_project_column` |
+| "move the Backlog column to Content Workflow" | Move a whole column, with its to-dos, to another project | `projects`, `project_columns`, then `move_project_column` |
 | `{project_id} comment "text"` *(+ "leave a note on project {id}", "comment on project {id}")* | Add a comment to the project | `add_item_comment` |
 | `{project_id} comments` *(+ "show comments on project {id}", "project discussion")* | List comments on the project | `list_item_comments` |
 | `edit comment {comment_id} "text"` | Edit my comment | Fallback |
@@ -111,6 +115,44 @@ Added to {column_name} ({column_id}):
 | 211297 | Research Pipedrive workflow |
 ```
 
+## Flow: Move a To-Do or Column
+
+**Trigger**: any ask to move a to-do (or item) to another column or another project, to put it at the top or bottom of a column or right after another one, or to move a column (reorder it in its project, or move it to another project), whatever the verb ("move", "put", "send", "file"). One move call per move, after a yes: `move_project_item` for a to-do or item, `move_project_column` for a column. The move goes through the connector only: ids come from `projects` and `project_columns` (never `get_item`), and there is no api.sh or curl step.
+
+Both tools take `into` (the id of the column or project it goes into) and, only when the user named a place, `to` (`top` or `bottom`) or `after` (the id of another one already in `into`), never both. With no place it lands last. To reorder within where it already sits, `into` is its current column (for a column: its project). Which tool follows from what `project_columns` shows: a top-level row is a column, a row in a column's `children` is an item. A tool given the other kind refuses it in words, naming the other tool.
+
+| The user asks to move | Tool | Id to move | `into` | Place |
+|---|---|---|---|---|
+| a to-do or item to a column (this project or another) | `move_project_item` | `item` = its id | the column's id | `to` for top or bottom, `after` for "after Y" (Y = another item in that column) |
+| a to-do or item onto a project, naming no column | `move_project_item` | `item` = its id | the project's id | none: it lands at the project's top level, in no column |
+| a column to a new place in its project | `move_project_column` | `column` = its id | the project's id | `to` for front/first/top or end/last/bottom, `after` for "after the Doing column" (another column of that project) |
+| a column to another project | `move_project_column` | `column` = its id | the other project's id | none: it lands last, and its to-dos go with it |
+
+1. **Connector first.** If `projects`, `project_columns` or the move tool needed (`move_project_item`, or `move_project_column` for a column) is missing, or answers an authorization error, give the Errors sentence and stop, before any other call.
+2. **What and where.** Take from the message what moves, where it goes and any place. Something missing ("move a to-do to another column") → ask for it in one line (`Which to-do or column, and where should it go?`) and stop. Team: the one in args, else `default_team_id` from Current State (neither → "No team specified and no default configured. Run `/rkit:setup`.").
+3. **Read.** Call `projects` for the team (add `q` when one project is named; leave it out when two are, so one answer holds both), then `project_columns` for each project named. No project named: read every active project's columns. Columns are the top-level rows and each column's to-dos are its `children`; every row carries its `id` and `name`. Match names ignoring case, exact first, then contains; several matches → list them with IDs and ask which. A destination name that is a column of the project the thing sits in goes into that column; one that is a project goes into the project; one that is both → ask which.
+4. **Say what is wrong, in words, and stop. No write:**
+   - no column of that name → `There is no column "{typed}" on {project_name}. Its columns: {A}, {B}, {C}.` (names verbatim, board order). Never create one.
+   - the to-do, column or project is not on what the user named → `I don't see "{name}" on {project_name}.`
+   - it already sits in that column or project and the user named no place → `{name} is already in {destination}.` Nothing changed, and it is not an error.
+   - a project as the thing to move → `Only a to-do or a column can be moved here, not a project.` A column into a column → `A column goes into a project, not into another column.`
+   - the user named both a top/bottom and an "after" → `Pick one place: the top or bottom, or right after another one, not both.`
+5. **Confirm.** One plain question in the reply (not AskUserQuestion), naming what moves, where it goes and its place, with IDs as above; for a column going to another project also how many to-dos go with it. Then wait.
+   > Move **Draft launch email** (ID: 9101) from **Backlog** to **Doing** (ID: 9012) on Go To Market?
+   > Put **Price the starter plan** (ID: 9103) first in **Doing** (ID: 9012)?
+   > Move the **Backlog** column (ID: 9011) from Go To Market to **Content Workflow** (ID: 9002)? Its 3 to-dos go with it.
+
+   On **no**: `Okay, nothing was moved.` and make no call. On **yes**: call `move_project_item` (`item`) or `move_project_column` (`column`) once, with `into`, and `to` or `after` only if a place was named.
+6. **Answer, then show the columns.** The tool answers one sentence with links (`[{name}](…) is now last in "Doing" on …`). Reply with it, a blank line, then call `project_columns` for the project it went into (the project itself when `into` is a project) and show every column with its to-dos, in the order returned:
+
+   ```
+   ## Columns — {project_name} ({project_id})
+
+   ### {column_name} ({column_id}) — {n} to-dos
+   - {to-do name} ({to-do_id})
+   ```
+   A column with none shows its heading and `— 0 to-dos`. An `Error: …` is said as the Errors table says, and nothing is shown after it.
+
 ## Flow: Comments on a Project
 
 The connector has no project-specific comment tool. A project is an Item of type TodoList, so its comments are item comments: pass the project's ID as `todo_or_issue`. Unlike the project route, these tools do not check that the ID is a project, so use the project ID that `projects` lists. For a comment on one of the project's individual to-dos rather than the project itself, use `/rkit:board` or `/rkit:level10`/`/rkit:weekly` against that to-do's own ID.
@@ -161,6 +203,15 @@ Projects use the same status field as items: `not_started` (not yet begun), `nex
 | "Item not found…" (`project_columns`) or "To-do or issue not found…" (comments) | "Project {project_id} not found." |
 | "A comment cannot be blank." | "Comment text cannot be empty." |
 | "Parent item not found." or "Cannot view parent item." (`create_item`) | "Column {column_id} not found." |
+| "Give either to or after, not both." (either move tool) | "Pick one place: the top or bottom, or right after another one, not both." |
+| "Item not found or you don't have access to it." (`move_project_item`) or "Column not found or you don't have access to it." (`move_project_column`) | "I can't find {name}, or you don't have access to it." |
+| "The column or Project to move it into was not found or is not accessible." | "I can't find {destination}, or you don't have access to it." |
+| "…is not a column or a Project…" | "{destination} is not a column or a project. Say which column, or which project." |
+| "A column moves into a Project, not into another column." | "A column goes into a project, not into another column." |
+| "This moves an item, not a Project." or "This moves a column, not a Project." | "Only a to-do or a column can be moved here, not a project." |
+| "The item to place it after is not in …", "The column to place it after is not on …" or "… cannot be placed after itself." | Say it as returned: that one is not there (or is the one being placed). Nothing changed. |
+| a move tool answers that the thing is a column, or is not a column, and names the other tool | Say it as returned. Nothing was moved; the tool comes from `project_columns` (a top-level row is a column, a row in `children` is an item). |
+| a move answers "…is already …" | Say so. Nothing changed, and it is not an error. |
 | any other `Error: …` | Show it as returned. |
 
 ## References

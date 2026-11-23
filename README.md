@@ -22,7 +22,7 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:pages` | Read a page from its id or link (no team needed); list, create, update, move, and delete team Pages (the wiki/docs tree); show, filter by, add, or remove page labels; lock, unlock, or check whether a page is locked. |
 | `rkit:password-reset` | Trigger a password reset email for a user (admin only). |
 | `rkit:profile` | View your profile stats, measurables, rocks, feedback, and progress dashboard. |
-| `rkit:projects` | List active projects for a team and manage project items. |
+| `rkit:projects` | List active projects for a team, manage project items, and move a to-do to another column or project, or a column to a new place or another project. |
 | `rkit:result-feed` | View and interact with team daily check-ins (result feeds). |
 | `rkit:result-update` | Compose and submit your daily check-in — the 90-second update practice. |
 | `rkit:reviews` | View and manage performance reviews, submit assessments, sign off, and rate core values. |
