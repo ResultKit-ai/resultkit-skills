@@ -29,6 +29,7 @@ Works with **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 | `rkit:scorecard` | View and manage your team's scorecard (measures/measurables). |
 | `rkit:seats` | View and manage your team's accountability chart (seats). |
 | `rkit:setup` | First-run configuration for ResultKit — sets up your API token and default team. |
+| `rkit:skills` | List your team's skills, read or use one, change one, and see, restore, or copy its versions. |
 | `rkit:strategy` | View and manage your team's strategy tree — goals, rocks, objectives, and more. |
 | `rkit:success-criteria` | Review, grade, write, and rewrite the Success Criteria of any process document. |
 | `rkit:teams` | List your teams, view members, change roles, and manage team logos. |
